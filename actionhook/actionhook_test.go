@@ -32,3 +32,23 @@ func TestActionHook_Telemetry(t *testing.T) {
 		t.Fatalf("action execution failed: %v", err)
 	}
 }
+
+func BenchmarkActionHook_ZeroAlloc(b *testing.B) {
+	provider, shutdown, _ := obs.NewWithShutdown(obs.Config{
+		ServiceName: "bench",
+		Env:         "test",
+	})
+	defer shutdown(context.Background())
+
+	hook := actionhook.New(provider)
+	act := action.New("bench.action", func(ctx context.Context, req string) (string, error) {
+		return req, nil
+	}).AnyHook(hook).Build()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		_, _ = act.Do(context.Background(), "test")
+	}
+}
