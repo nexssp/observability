@@ -2,19 +2,23 @@ package obs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
+	"github.com/nexssp/kernel/ai/dag"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
 
+const DefaultCollectorCapacity = 64
+
 type CompletedSpan struct {
 	Name          string `json:"name"`
-	Status        string `json:"status"` // "OK" or "ERROR"
+	Status        string `json:"status"` // "OK", "ERROR", or "SUSPENDED"
 	StartOffsetUs int64  `json:"start_offset_us"`
 	StartOffsetNs int64  `json:"start_offset_ns"`
 	DurationUs    int64  `json:"duration_us"`
@@ -36,16 +40,22 @@ type TraceRecord struct {
 
 type traceContextKey struct{}
 
+// True circular ring buffer with index arithmetic (zero slice reallocations)
 type activeTraceCollector struct {
 	mu        sync.Mutex
 	rootStart time.Time
 	spans     []CompletedSpan
+	head      int
+	count     int
+	capacity  int
 }
 
 func withCollector(ctx context.Context) (context.Context, *activeTraceCollector) {
+	const defaultCap = DefaultCollectorCapacity
 	c := &activeTraceCollector{
 		rootStart: time.Now(),
-		spans:     make([]CompletedSpan, 0, 16),
+		spans:     make([]CompletedSpan, defaultCap),
+		capacity:  defaultCap,
 	}
 	return context.WithValue(ctx, traceContextKey{}, c), c
 }
@@ -61,8 +71,20 @@ func (c *activeTraceCollector) Spans() []CompletedSpan {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	out := make([]CompletedSpan, len(c.spans))
-	copy(out, c.spans)
+
+	if c.count == 0 {
+		return []CompletedSpan{}
+	}
+
+	out := make([]CompletedSpan, c.count)
+	if c.count < c.capacity {
+		copy(out, c.spans[:c.count])
+		return out
+	}
+
+	// Unroll circular buffer: oldest to newest
+	copied := copy(out, c.spans[c.head:])
+	copy(out[copied:], c.spans[:c.head])
 	return out
 }
 
@@ -70,7 +92,6 @@ func WithCollector(ctx context.Context) (context.Context, *activeTraceCollector)
 	return withCollector(ctx)
 }
 
-// StartSpan creates a child OpenTelemetry span with start offsets for visual timelines.
 func StartSpan(ctx context.Context, name string, detail ...string) (context.Context, func(err ...error)) {
 	start := time.Now()
 	det := ""
@@ -104,13 +125,23 @@ func StartSpan(ctx context.Context, name string, detail ...string) (context.Cont
 		status := "OK"
 
 		if len(err) > 0 && err[0] != nil {
-			status = "ERROR"
-			span.RecordError(err[0])
-			span.SetStatus(codes.Error, err[0].Error())
+			if errors.Is(err[0], dag.ErrSuspended) {
+				status = "SUSPENDED"
+				span.SetStatus(codes.Ok, "suspended for human intervention")
+				span.SetAttributes(
+					attribute.Bool("nexss.suspended", true),
+					attribute.String("nexss.status", "suspended"),
+				)
+			} else {
+				status = "ERROR"
+				span.RecordError(err[0])
+				span.SetStatus(codes.Error, err[0].Error())
+			}
+
 			if det == "" {
 				det = err[0].Error()
 			} else {
-				det = fmt.Sprintf("%s (Error: %v)", det, err[0])
+				det = fmt.Sprintf("%s (Status: %s, Cause: %v)", det, status, err[0])
 			}
 		} else {
 			span.SetStatus(codes.Ok, "")
@@ -130,7 +161,11 @@ func StartSpan(ctx context.Context, name string, detail ...string) (context.Cont
 
 		if col != nil {
 			col.mu.Lock()
-			col.spans = append(col.spans, cs)
+			col.spans[col.head] = cs
+			col.head = (col.head + 1) % col.capacity
+			if col.count < col.capacity {
+				col.count++
+			}
 			col.mu.Unlock()
 		}
 	}
@@ -149,8 +184,6 @@ func FormatDuration(d time.Duration) string {
 	return fmt.Sprintf("%.2fs", d.Seconds())
 }
 
-// TraceRecordFromContext builds a complete, machine-readable trace record (timeline) from the context.
-// Returns false if there was no active collector in the context (WithCollector).
 func TraceRecordFromContext(ctx context.Context, actionName, transportName string, err error) (TraceRecord, bool) {
 	col := collectorFrom(ctx)
 	if col == nil {
@@ -164,15 +197,24 @@ func TraceRecordFromContext(ctx context.Context, actionName, transportName strin
 	}
 
 	col.mu.Lock()
-	spans := make([]CompletedSpan, len(col.spans))
-	copy(spans, col.spans)
+	spans := make([]CompletedSpan, col.count)
+	if col.count < col.capacity {
+		copy(spans, col.spans[:col.count])
+	} else {
+		copied := copy(spans, col.spans[col.head:])
+		copy(spans[copied:], col.spans[:col.head])
+	}
 	rootStart := col.rootStart
 	col.mu.Unlock()
 
 	totalDuration := time.Since(rootStart)
 	status := "OK"
 	if err != nil {
-		status = "ERROR"
+		if errors.Is(err, dag.ErrSuspended) {
+			status = "SUSPENDED"
+		} else {
+			status = "ERROR"
+		}
 	}
 
 	return TraceRecord{

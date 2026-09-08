@@ -3,8 +3,10 @@ package obs
 
 import (
 	"context"
+	"errors"
 	"time"
 
+	"github.com/nexssp/kernel/ai/dag"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -25,34 +27,41 @@ func (p *Provider) Hook() *Hook {
 	}
 }
 
-// Before starts an OpenTelemetry span before action invocation.
-func (h *Hook) Before(ctx context.Context, action string, meta map[string]string) context.Context {
-	attributes := make([]attribute.KeyValue, 0, 1+len(meta))
-	attributes = append(attributes, attribute.String("nexss.action", action))
+// BeforeWithAttributes starts an OTel span with stack-allocated attributes (0 heap allocations on hot path).
+func (h *Hook) BeforeWithAttributes(ctx context.Context, actionName string, extraAttrs ...attribute.KeyValue) context.Context {
+	attrs := make([]attribute.KeyValue, 0, 1+len(extraAttrs))
+	attrs = append(attrs, attribute.String("nexss.action", actionName))
+	attrs = append(attrs, extraAttrs...)
 
-	for key, value := range meta {
-		if key == "" {
-			continue
-		}
-		attributes = append(attributes, attribute.String("nexss.meta."+key, value))
-	}
-
-	ctx, span := h.tracer.Start(ctx, "action."+action,
-		trace.WithAttributes(attributes...),
+	ctx, span := h.tracer.Start(ctx, "action."+actionName,
+		trace.WithAttributes(attrs...),
 		trace.WithSpanKind(trace.SpanKindInternal),
 	)
 
 	state := &obsState{
-		action:  action,
+		action:  actionName,
 		startMs: time.Now().UnixMilli(),
-		attrs:   meta,
 	}
 	ctx = withObsState(ctx, state)
 	_ = span
 	return ctx
 }
 
-// After ends the OpenTelemetry span and records latency/error metrics.
+// Before is preserved for backward compatibility with map-based callers.
+func (h *Hook) Before(ctx context.Context, actionName string, meta map[string]string) context.Context {
+	if len(meta) == 0 {
+		return h.BeforeWithAttributes(ctx, actionName)
+	}
+	attrs := make([]attribute.KeyValue, 0, len(meta))
+	for k, v := range meta {
+		if k != "" {
+			attrs = append(attrs, attribute.String("nexss.meta."+k, v))
+		}
+	}
+	return h.BeforeWithAttributes(ctx, actionName, attrs...)
+}
+
+// After ends the OpenTelemetry span and records latency/error/suspension metrics.
 func (h *Hook) After(ctx context.Context, err error) {
 	span := trace.SpanFromContext(ctx)
 	state := getObsState(ctx)
@@ -62,14 +71,32 @@ func (h *Hook) After(ctx context.Context, err error) {
 		duration = float64(time.Now().UnixMilli() - state.startMs)
 	}
 
-	if err != nil {
+	switch {
+	// ⚡ HIL SUSPENSION: Do not treat human approval pause as an application failure!
+	case errors.Is(err, dag.ErrSuspended):
+		span.SetStatus(codes.Ok, "suspended for human intervention")
+		span.SetAttributes(
+			attribute.Bool("nexss.suspended", true),
+			attribute.String("nexss.status", "suspended"),
+		)
+		span.AddEvent("workflow.suspended", trace.WithAttributes(
+			attribute.String("reason", "waiting for human approval"),
+		))
+		if h.provider.suspendedCounter != nil {
+			h.provider.suspendedCounter.Add(ctx, 1)
+		}
+
+	case err != nil:
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
+		span.SetAttributes(attribute.String("nexss.status", "error"))
 		if h.provider.errorCounter != nil {
 			h.provider.errorCounter.Add(ctx, 1)
 		}
-	} else {
+
+	default:
 		span.SetStatus(codes.Ok, "")
+		span.SetAttributes(attribute.String("nexss.status", "ok"))
 	}
 
 	span.SetAttributes(attribute.Float64("nexss.duration_ms", duration))

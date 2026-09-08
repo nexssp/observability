@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nexssp/observability/llm"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel"
@@ -30,7 +31,6 @@ type obsCtxKey struct{}
 type obsState struct {
 	action  string
 	startMs int64
-	attrs   map[string]string
 }
 
 func withObsState(ctx context.Context, state *obsState) context.Context {
@@ -55,11 +55,13 @@ type Provider struct {
 	mp           *sdkmetric.MeterProvider
 	promRegistry *prometheus.Registry
 
-	latencyHisto metric.Float64Histogram
-	errorCounter metric.Int64Counter
+	latencyHisto     metric.Float64Histogram
+	errorCounter     metric.Int64Counter
+	suspendedCounter metric.Int64Counter // Tracks HIL workflows paused for human intervention
 
 	checksMutex sync.RWMutex
 	checks      map[string]func(context.Context) error
+	llmMetrics  *llm.Metrics
 }
 
 var _ HealthRegistry = (*Provider)(nil)
@@ -129,7 +131,6 @@ func New(ctx context.Context, cfg Config, opts ...Option) (*Provider, error) {
 		cfg.HealthCheckTimeout = 3 * time.Second
 	}
 
-	// 1. Honor custom injected Prometheus registry
 	promRegistry := cfg.PrometheusRegistry
 	if promRegistry == nil {
 		promRegistry = prometheus.NewRegistry()
@@ -152,10 +153,8 @@ func New(ctx context.Context, cfg Config, opts ...Option) (*Provider, error) {
 		return nil, fmt.Errorf("resource merge: %w", err)
 	}
 
-	// 2. Build metric names following Prometheus namespace_subsystem_name conventions
 	metricName := func(name string) string {
 		var parts []string
-
 		if cfg.MetricsPrefix != "" {
 			parts = append(parts, cfg.MetricsPrefix)
 		} else {
@@ -166,7 +165,6 @@ func New(ctx context.Context, cfg Config, opts ...Option) (*Provider, error) {
 				parts = append(parts, cfg.MetricsSubsystem)
 			}
 		}
-
 		parts = append(parts, name)
 		return strings.Join(parts, "_")
 	}
@@ -176,7 +174,6 @@ func New(ctx context.Context, cfg Config, opts ...Option) (*Provider, error) {
 		sdkmetric.WithReader(promExporter),
 	}
 
-	// 3. Configure latency histogram view if custom buckets provided
 	if len(cfg.HistogramBuckets) > 0 {
 		view := sdkmetric.NewView(
 			sdkmetric.Instrument{Name: metricName("action_latency_ms")},
@@ -192,7 +189,6 @@ func New(ctx context.Context, cfg Config, opts ...Option) (*Provider, error) {
 	meterProvider := sdkmetric.NewMeterProvider(mpOpts...)
 	otel.SetMeterProvider(meterProvider)
 
-	// 4. Ensure W3C trace context and baggage propagation is globally active
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
 		propagation.TraceContext{}, propagation.Baggage{},
 	))
@@ -219,20 +215,37 @@ func New(ctx context.Context, cfg Config, opts ...Option) (*Provider, error) {
 		return nil, fmt.Errorf("error counter: %w", err)
 	}
 
+	suspendedCounter, err := meter.Int64Counter(metricName("action_suspended_total"),
+		metric.WithDescription("Total actions/workflows suspended for human intervention (HIL)"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("suspended counter: %w", err)
+	}
+
 	handler := NewContextHandler(cfg.LoggerHandler)
 	logger := slog.New(handler)
 
+	llmMetrics := llm.NewMetrics(promRegistry, cfg.MetricsNamespace, cfg.MetricsSubsystem)
+
 	return &Provider{
-		cfg:          cfg,
-		logger:       logger,
-		handler:      handler,
-		tp:           tracerProvider,
-		mp:           meterProvider,
-		promRegistry: promRegistry,
-		latencyHisto: latencyHisto,
-		errorCounter: errorCounter,
-		checks:       make(map[string]func(context.Context) error),
+		cfg:              cfg,
+		logger:           logger,
+		handler:          handler,
+		tp:               tracerProvider,
+		mp:               meterProvider,
+		promRegistry:     promRegistry,
+		latencyHisto:     latencyHisto,
+		errorCounter:     errorCounter,
+		suspendedCounter: suspendedCounter,
+		checks:           make(map[string]func(context.Context) error),
+		llmMetrics:       llmMetrics,
 	}, nil
+}
+
+// Sink returns an implementation of kernel/observe.Sink that routes
+// Kernel lifecycle events to OpenTelemetry and Prometheus.
+func (p *Provider) Sink() *Sink {
+	return NewSink(p)
 }
 
 // Logger returns the configured contextual slog logger.
@@ -262,6 +275,10 @@ func (p *Provider) RegisterCheck(name string, checkFunc func(context.Context) er
 // HealthHandler serves JSON HTTP readiness probe responses.
 func (p *Provider) HealthHandler() http.Handler {
 	return http.HandlerFunc(p.handleHealth)
+}
+
+func (p *Provider) LLMMetrics() *llm.Metrics {
+	return p.llmMetrics
 }
 
 func (p *Provider) handleHealth(w http.ResponseWriter, r *http.Request) {

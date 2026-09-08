@@ -125,6 +125,24 @@ func WithMetricsPrefix(prefix string) Option {
 	}
 }
 
+func WithMetricsNamespace(ns string) Option {
+	return func(c *Config) {
+		c.MetricsNamespace = ns
+	}
+}
+
+func WithMetricsSubsystem(sub string) Option {
+	return func(c *Config) {
+		c.MetricsSubsystem = sub
+	}
+}
+
+func WithHistogramBuckets(buckets []float64) Option {
+	return func(c *Config) {
+		c.HistogramBuckets = buckets
+	}
+}
+
 func WithLoggerHandler(handler slog.Handler) Option {
 	return func(c *Config) {
 		c.LoggerHandler = handler
