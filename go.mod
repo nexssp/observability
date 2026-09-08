@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/glebarez/go-sqlite v1.23.0
-	github.com/nexssp/kernel v0.4.0
+	github.com/nexssp/kernel v0.5.0
 	github.com/prometheus/client_golang v1.24.1
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.71.0
 	go.opentelemetry.io/otel v1.46.0

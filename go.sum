@@ -39,6 +39,8 @@ github.com/ncruces/go-strftime v1.0.0 h1:HMFp8mLCTPp341M/ZnA4qaf7ZlsbTc+miZjCLOF
 github.com/ncruces/go-strftime v1.0.0/go.mod h1:Fwc5htZGVVkseilnfgOVb9mKy6w1naJmn9CehxcKcls=
 github.com/nexssp/kernel v0.4.0 h1:VLVmYS9x6mrgyy7AZVQYL7kAt2nPTBMttawMeHAsIC0=
 github.com/nexssp/kernel v0.4.0/go.mod h1:4+7o1mgE9Ie6BhyG/SbrwFhPkQ0zpJxLQbtHrDVgqAE=
+github.com/nexssp/kernel v0.5.0 h1:vKRSkrT6sz3mPiX3D/K2APuLv4EyOR7aYArGBw5S6wQ=
+github.com/nexssp/kernel v0.5.0/go.mod h1:4+7o1mgE9Ie6BhyG/SbrwFhPkQ0zpJxLQbtHrDVgqAE=
 github.com/prometheus/client_golang v1.24.1 h1:JnJkREXzWxUdCuPFpIWZiPispT9xVV59uiuyR2bPlnU=
 github.com/prometheus/client_golang v1.24.1/go.mod h1:F+oSRECHg4sse5ucfYpYDeIv/hu68Zo0uoHKetWnzcE=
 github.com/prometheus/client_model v0.6.2 h1:oBsgwpGs7iVziMvrGhE53c/GrLUsZdHnqNwqPLxwZyk=
