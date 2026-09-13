@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	_ "github.com/glebarez/go-sqlite"
+	_ "github.com/ncruces/go-sqlite3/driver"
 	"github.com/nexssp/kernel/action"
 	obs "github.com/nexssp/observability"
 	"github.com/nexssp/observability/actionhook"

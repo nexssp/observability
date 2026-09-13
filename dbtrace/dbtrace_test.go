@@ -5,14 +5,14 @@ import (
 	"database/sql"
 	"testing"
 
-	_ "github.com/glebarez/go-sqlite"
+	_ "github.com/ncruces/go-sqlite3/driver"
 	"github.com/nexssp/observability/dbtrace"
 )
 
 func TestDBTrace_ExecQueryTx(t *testing.T) {
 	t.Parallel()
 
-	sqlDB, err := sql.Open("sqlite", ":memory:")
+	sqlDB, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
 		t.Fatalf("failed to open sqlite: %v", err)
 	}
