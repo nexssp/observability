@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nexssp/kernel/xctx"
 	"github.com/nexssp/observability/llm"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -318,13 +319,12 @@ func TraceID(ctx context.Context) string {
 	if span := trace.SpanFromContext(ctx); span.SpanContext().IsValid() {
 		return span.SpanContext().TraceID().String()
 	}
-	return ""
+	return xctx.TraceIDFrom(ctx)
 }
 
-// SpanID extracts active span ID from context as string (or returns empty).
 func SpanID(ctx context.Context) string {
 	if span := trace.SpanFromContext(ctx); span.SpanContext().IsValid() {
 		return span.SpanContext().SpanID().String()
 	}
-	return ""
+	return xctx.SpanIDFrom(ctx)
 }
