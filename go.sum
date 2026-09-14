@@ -31,8 +31,8 @@ github.com/ncruces/go-sqlite3-wasm/v5 v5.0.35304 h1:Ck3GB9h+0n3hJqdhAeehOef3k5V+
 github.com/ncruces/go-sqlite3-wasm/v5 v5.0.35304/go.mod h1:gJyN6U50iis7mDt+rzRv8u9vUNr08NTD2p4fVonKn/Q=
 github.com/ncruces/julianday v1.0.0 h1:fH0OKwa7NWvniGQtxdJRxAgkBMolni2BjDHaWTxqt7M=
 github.com/ncruces/julianday v1.0.0/go.mod h1:Dusn2KvZrrovOMJuOt0TNXL6tB7U2E8kvza5fFc9G7g=
-github.com/nexssp/kernel v0.10.0 h1:WfwK0BtpysM1gntDT6/iFjlVdQzApiW9xBmvQ/Kset8=
-github.com/nexssp/kernel v0.10.0/go.mod h1:gLyh+67KWqJsj0YTMijJyfjh7NGN58pqjRmEdFd1VO0=
+github.com/nexssp/kernel v0.10.1 h1:uUc2NQkQjP2todrY468mXaa3x6W4RlEK+/EN2RGJek8=
+github.com/nexssp/kernel v0.10.1/go.mod h1:gLyh+67KWqJsj0YTMijJyfjh7NGN58pqjRmEdFd1VO0=
 github.com/prometheus/client_golang v1.24.1 h1:JnJkREXzWxUdCuPFpIWZiPispT9xVV59uiuyR2bPlnU=
 github.com/prometheus/client_golang v1.24.1/go.mod h1:F+oSRECHg4sse5ucfYpYDeIv/hu68Zo0uoHKetWnzcE=
 github.com/prometheus/client_model v0.6.3 h1:O0jaTVAYNxTHYInEPFJt5I3+sN8zqBtVMPTB1qyxiEo=

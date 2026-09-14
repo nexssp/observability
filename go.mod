@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/ncruces/go-sqlite3 v0.35.4
-	github.com/nexssp/kernel v0.10.0
+	github.com/nexssp/kernel v0.10.1
 	github.com/prometheus/client_golang v1.24.1
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.71.0
 	go.opentelemetry.io/otel v1.46.0
