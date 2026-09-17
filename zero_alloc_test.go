@@ -10,7 +10,6 @@ import (
 	"github.com/nexssp/observability/llm"
 )
 
-// 1. Verifies that zero-dependency TraceID and SpanID context extractions are 100% allocation-free.
 func TestZeroAlloc_TraceContextExtraction(t *testing.T) {
 	ctx := context.Background()
 
@@ -24,7 +23,6 @@ func TestZeroAlloc_TraceContextExtraction(t *testing.T) {
 	}
 }
 
-// 2. Verifies that the kernel/observe.Sink adapter hot path (cache hits, misses, deduplication) is 100% allocation-free.
 func TestZeroAlloc_SinkLifecycleEmission(t *testing.T) {
 	provider, shutdown, err := obs.NewWithShutdown(obs.Config{
 		ServiceName: "zero-alloc-service",
@@ -53,16 +51,15 @@ func TestZeroAlloc_SinkLifecycleEmission(t *testing.T) {
 	}
 }
 
-// 3. Verifies that LLM telemetry filtering has 0 allocations when non-LLM responses pass through.
 func TestZeroAlloc_LLMHookFiltering(t *testing.T) {
-	hook := llm.NewLLMHook(llm.LLMHookOptions{})
+	hook := llm.NewLLMHook(llm.HookOptions{})
 	ctx := context.Background()
 
 	nonLLMEvent := observe.Event{
 		Kind:     observe.KindExecuted,
 		Action:   "standard.db_query",
 		Duration: 10 * time.Millisecond,
-		Response: struct{ Status string }{Status: "ok"}, // Not a TokenCostProvider
+		Response: struct{ Status string }{Status: "ok"},
 	}
 
 	allocs := testing.AllocsPerRun(1000, func() {
@@ -74,19 +71,16 @@ func TestZeroAlloc_LLMHookFiltering(t *testing.T) {
 	}
 }
 
-// 4. Verifies that the visual trace collector ring buffer uses fixed modular arithmetic with zero slice reallocations.
 func TestZeroAlloc_VisualTraceCollectorRingBuffer(t *testing.T) {
 	ctx, col := obs.WithCollector(context.Background())
 
-	// Warm up ring buffer to initial capacity (64 slots)
-	for i := 0; i < 64; i++ {
+	for range 64 {
 		_, end := obs.StartSpan(ctx, "warmup")
 		end()
 	}
 
-	// Verify that wrapped slots overwrite in-place with zero capacity growth
 	initialCap := 64
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		_, end := obs.StartSpan(ctx, "sub.operation")
 		end()
 	}

@@ -28,40 +28,35 @@ func (r LLMResponse) CompletionTokens() int   { return r.compTokens }
 func main() {
 	ctx := context.Background()
 
-	// 1. Initialize Observability provider from environment
 	provider, shutdown, err := obs.Auto()
 	if err != nil {
 		log.Fatalf("failed to initialize observability: %v", err)
 	}
 	defer func() { _ = shutdown(context.Background()) }()
 
-	// 2. Real-world prompt cache pricing calculator (e.g. DeepSeek V3 / Claude 3.5)
+	// Real-world prompt cache pricing calculator (e.g. DeepSeek V3 / Claude 3.5)
 	// Cache Hit: $0.014 / 1M | Cache Miss: $0.14 / 1M | Output: $0.28 / 1M
-	costCalc := func(model string, prompt, cached, comp int) (float64, bool) {
-		uncached := prompt - cached
-		if uncached < 0 {
-			uncached = 0
-		}
+	costCalc := func(_ string, prompt, cached, comp int) (float64, bool) {
+		uncached := max(prompt-cached, 0)
+
 		cost := (float64(cached)/1_000_000)*0.014 +
 			(float64(uncached)/1_000_000)*0.14 +
 			(float64(comp)/1_000_000)*0.28
+
 		return cost, true
 	}
 
-	// 3. Register LLM Hook with Prometheus registry and OTel bridge
-	llmHook := obsllm.NewLLMHook(obsllm.LLMHookOptions{
+	llmHook := obsllm.NewLLMHook(obsllm.HookOptions{
 		Metrics:                provider.LLMMetrics(),
 		DetailedCostCalculator: costCalc,
 		Logger:                 provider.Logger(),
 	})
 
-	// 4. Build action with both standard OTel action hook and LLM cost telemetrist
 	turn := 0
-	llmAction := action.New("llm.generate", func(ctx context.Context, prompt string) (LLMResponse, error) {
+	llmAction := action.New("llm.generate", func(_ context.Context, prompt string) (LLMResponse, error) {
 		turn++
-		time.Sleep(50 * time.Millisecond) // Simulated inference latency
+		time.Sleep(50 * time.Millisecond)
 
-		// Simulate prompt caching: subsequent conversational turns hit 80% cache
 		totalPrompt := len(prompt) * 8
 		cached := 0
 		if turn > 1 {
@@ -80,7 +75,6 @@ func main() {
 		AnyHook(llmHook.AsAnyHook()).
 		Build()
 
-	// 5. Expose production-hardened HTTP server for Prometheus scraping and health checks
 	mux := http.NewServeMux()
 	mux.Handle("GET /metrics", provider.MetricsHandler())
 	mux.Handle("GET /healthz", provider.HealthHandler())
@@ -102,14 +96,15 @@ func main() {
 	}()
 	defer func() { _ = server.Shutdown(ctx) }()
 
-	// 6. Execute multi-turn conversation
 	fmt.Println("🚀 Executing LLM turns...")
 	for i := 1; i <= 3; i++ {
 		res, err := llmAction.Do(ctx, fmt.Sprintf("Turn %d: Explain zero-allocation telemetry architecture in Go.", i))
 		if err != nil {
 			log.Printf("action failed: %v", err)
+
 			return
 		}
+
 		fmt.Printf("Turn %d [%s] -> Prompt: %d (Cached: %d) | Output: %d\n",
 			i, res.Model(), res.PromptTokens(), res.CachedPromptTokens(), res.CompletionTokens())
 	}

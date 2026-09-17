@@ -40,8 +40,9 @@ type TraceRecord struct {
 
 type traceContextKey struct{}
 
-// True circular ring buffer with index arithmetic (zero slice reallocations)
-type activeTraceCollector struct {
+// TraceCollector is a true circular ring buffer with index arithmetic
+// (zero slice reallocations).
+type TraceCollector struct {
 	mu        sync.Mutex
 	rootStart time.Time
 	spans     []CompletedSpan
@@ -50,25 +51,27 @@ type activeTraceCollector struct {
 	capacity  int
 }
 
-func withCollector(ctx context.Context) (context.Context, *activeTraceCollector) {
-	const defaultCap = DefaultCollectorCapacity
-	c := &activeTraceCollector{
+func withCollector(ctx context.Context) (context.Context, *TraceCollector) {
+	c := &TraceCollector{
 		rootStart: time.Now(),
-		spans:     make([]CompletedSpan, defaultCap),
-		capacity:  defaultCap,
+		spans:     make([]CompletedSpan, DefaultCollectorCapacity),
+		capacity:  DefaultCollectorCapacity,
 	}
+
 	return context.WithValue(ctx, traceContextKey{}, c), c
 }
 
-func collectorFrom(ctx context.Context) *activeTraceCollector {
-	c, _ := ctx.Value(traceContextKey{}).(*activeTraceCollector)
+func collectorFrom(ctx context.Context) *TraceCollector {
+	c, _ := ctx.Value(traceContextKey{}).(*TraceCollector)
+
 	return c
 }
 
-func (c *activeTraceCollector) Spans() []CompletedSpan {
+func (c *TraceCollector) Spans() []CompletedSpan {
 	if c == nil {
 		return nil
 	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -79,20 +82,23 @@ func (c *activeTraceCollector) Spans() []CompletedSpan {
 	out := make([]CompletedSpan, c.count)
 	if c.count < c.capacity {
 		copy(out, c.spans[:c.count])
+
 		return out
 	}
 
 	// Unroll circular buffer: oldest to newest
 	copied := copy(out, c.spans[c.head:])
 	copy(out[copied:], c.spans[:c.head])
+
 	return out
 }
 
-func WithCollector(ctx context.Context) (context.Context, *activeTraceCollector) {
+// WithCollector attaches a TraceCollector to the context for capturing spans.
+func WithCollector(ctx context.Context) (context.Context, *TraceCollector) {
 	return withCollector(ctx)
 }
 
-func StartSpan(ctx context.Context, name string, detail ...string) (context.Context, func(err ...error)) {
+func StartSpan(ctx context.Context, name string, detail ...string) (spanCtx context.Context, endSpan func(err ...error)) {
 	start := time.Now()
 	det := ""
 	if len(detail) > 0 {
@@ -100,9 +106,7 @@ func StartSpan(ctx context.Context, name string, detail ...string) (context.Cont
 	}
 
 	tracer := otel.Tracer("nexss/obs")
-	attrs := []attribute.KeyValue{
-		attribute.String("span.name", name),
-	}
+	attrs := []attribute.KeyValue{attribute.String("span.name", name)}
 	if det != "" {
 		attrs = append(attrs, attribute.String("span.detail", det))
 	}
@@ -181,6 +185,7 @@ func FormatDuration(d time.Duration) string {
 	if d < time.Second {
 		return fmt.Sprintf("%.2fms", float64(d.Microseconds())/1000.0)
 	}
+
 	return fmt.Sprintf("%.2fs", d.Seconds())
 }
 

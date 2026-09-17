@@ -23,10 +23,9 @@ func TestProvider_AsObserveSink(t *testing.T) {
 	}
 	defer func() { _ = shutdown(context.Background()) }()
 
-	// ⚡ Plug provider.Sink() into kernel's native observe.Hook!
 	kernelHook := observe.Hook(provider.Sink())
 
-	act := action.New("test.observe.action", func(ctx context.Context, n int) (int, error) {
+	act := action.New("test.observe.action", func(_ context.Context, n int) (int, error) {
 		return n * 2, nil
 	}).
 		AnyHook(kernelHook).
@@ -53,7 +52,6 @@ func TestProvider_Sink_HIL_Suspended(t *testing.T) {
 	sink := provider.Sink()
 	ctx := context.Background()
 
-	// Emit an ErrSuspended event through the observe pipeline
 	sink.Emit(ctx, observe.Event{
 		Kind:     observe.KindError,
 		Action:   "workflow.node_approval",

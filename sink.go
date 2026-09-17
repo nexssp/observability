@@ -31,65 +31,19 @@ func (s *Sink) Emit(ctx context.Context, event observe.Event) {
 
 	switch event.Kind {
 	case observe.KindExecuted:
-		if s.provider.latencyHisto != nil && event.Duration > 0 {
-			s.provider.latencyHisto.Record(ctx, float64(event.Duration.Milliseconds()))
-		}
-
+		s.emitExecuted(ctx, event)
 	case observe.KindError:
-		// ⚡ HIL SUSPENSION: Count pauses separately from application errors
-		if errors.Is(event.Error, dag.ErrSuspended) {
-			if s.provider.suspendedCounter != nil {
-				s.provider.suspendedCounter.Add(ctx, 1)
-			}
-			if span.IsRecording() {
-				span.AddEvent("workflow.suspended", trace.WithAttributes(
-					attribute.String("action", event.Action),
-					attribute.String("reason", "waiting for human approval"),
-				))
-			}
-		} else if s.provider.errorCounter != nil {
-			if s.provider.errorCounter != nil {
-				s.provider.errorCounter.Add(ctx, 1)
-			}
-		}
-
+		s.emitError(ctx, event, span)
 	case observe.KindRetry:
-		if span.IsRecording() {
-			span.AddEvent("action.retry", trace.WithAttributes(
-				attribute.String("action", event.Action),
-				attribute.Int("attempt", event.Attempt),
-				attribute.String("error", fmt.Sprint(event.Error)),
-			))
-		}
-
+		s.emitRetry(span, event)
 	case observe.KindCacheHit:
-		if span.IsRecording() {
-			span.AddEvent("cache.hit", trace.WithAttributes(
-				attribute.String("action", event.Action),
-			))
-		}
-
+		addActionEvent(span, "cache.hit", event.Action)
 	case observe.KindCacheMiss:
-		if span.IsRecording() {
-			span.AddEvent("cache.miss", trace.WithAttributes(
-				attribute.String("action", event.Action),
-			))
-		}
-
+		addActionEvent(span, "cache.miss", event.Action)
 	case observe.KindDeduplicated:
-		if span.IsRecording() {
-			span.AddEvent("concurrency.deduplicated", trace.WithAttributes(
-				attribute.String("action", event.Action),
-			))
-		}
-
+		addActionEvent(span, "concurrency.deduplicated", event.Action)
 	case observe.KindCoalesced:
-		if span.IsRecording() {
-			span.AddEvent("concurrency.coalesced", trace.WithAttributes(
-				attribute.String("action", event.Action),
-			))
-		}
-
+		addActionEvent(span, "concurrency.coalesced", event.Action)
 	case observe.KindPanic:
 		if span.IsRecording() {
 			span.AddEvent("action.panic", trace.WithAttributes(
@@ -98,6 +52,56 @@ func (s *Sink) Emit(ctx context.Context, event observe.Event) {
 			))
 		}
 	}
+}
+
+func (s *Sink) emitExecuted(ctx context.Context, event observe.Event) {
+	if s.provider.latencyHisto != nil && event.Duration > 0 {
+		s.provider.latencyHisto.Record(ctx, float64(event.Duration.Milliseconds()))
+	}
+}
+
+func (s *Sink) emitError(ctx context.Context, event observe.Event, span trace.Span) {
+	if errors.Is(event.Error, dag.ErrSuspended) {
+		if s.provider.suspendedCounter != nil {
+			s.provider.suspendedCounter.Add(ctx, 1)
+		}
+		if span.IsRecording() {
+			span.AddEvent("workflow.suspended", trace.WithAttributes(
+				attribute.String("action", event.Action),
+				attribute.String("reason", "waiting for human approval"),
+			))
+		}
+
+		return
+	}
+
+	if s.provider.errorCounter != nil {
+		s.provider.errorCounter.Add(ctx, 1)
+	}
+}
+
+func (s *Sink) emitRetry(span trace.Span, event observe.Event) {
+	if !span.IsRecording() {
+		return
+	}
+
+	attrs := []attribute.KeyValue{
+		attribute.String("action", event.Action),
+		attribute.Int("attempt", event.Attempt),
+	}
+	if event.Error != nil {
+		attrs = append(attrs, attribute.String("error", event.Error.Error()))
+	}
+
+	span.AddEvent("action.retry", trace.WithAttributes(attrs...))
+}
+
+func addActionEvent(span trace.Span, name, action string) {
+	if !span.IsRecording() {
+		return
+	}
+
+	span.AddEvent(name, trace.WithAttributes(attribute.String("action", action)))
 }
 
 var _ observe.Sink = (*Sink)(nil)

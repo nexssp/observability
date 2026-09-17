@@ -38,6 +38,7 @@ func LoadConfigFromEnv() Config {
 	if svc == "" {
 		svc = "nexss"
 	}
+
 	env := os.Getenv("ENV")
 	if env == "" {
 		env = "local"
@@ -64,14 +65,17 @@ func LoadConfigFromEnv() Config {
 
 func healthCheckTimeoutFromEnv() time.Duration {
 	const defaultTimeout = 3 * time.Second
+
 	value := strings.TrimSpace(os.Getenv("HEALTH_CHECK_TIMEOUT"))
 	if value == "" {
 		return defaultTimeout
 	}
+
 	timeout, err := time.ParseDuration(value)
 	if err != nil || timeout <= 0 {
 		return defaultTimeout
 	}
+
 	return timeout
 }
 
@@ -79,14 +83,17 @@ func nodeID(serviceName string) string {
 	if value := os.Getenv("NODE_ID"); value != "" {
 		return value
 	}
+
 	hostname, err := os.Hostname()
 	if err != nil {
 		hostname = "unknown"
 	}
+
 	var randomBytes [4]byte
 	if _, err := rand.Read(randomBytes[:]); err != nil {
 		return fmt.Sprintf("%s-%s-%d", serviceName, hostname, time.Now().UnixNano())
 	}
+
 	return fmt.Sprintf("%s-%s-%04x", serviceName, hostname, randomBytes)
 }
 
@@ -95,56 +102,48 @@ func parseOTLPHeaders(s string) map[string]string {
 	if s == "" {
 		return headers
 	}
-	for _, kv := range strings.Split(s, ",") {
+
+	for kv := range strings.SplitSeq(s, ",") {
 		kv = strings.TrimSpace(kv)
 		if kv == "" {
 			continue
 		}
+
 		parts := strings.SplitN(kv, "=", 2)
 		if len(parts) != 2 {
 			continue
 		}
+
 		key := strings.TrimSpace(parts[0])
 		val := strings.Trim(strings.TrimSpace(parts[1]), `"'`)
 		headers[key] = val
 	}
+
 	return headers
 }
 
 type Option func(*Config)
 
 func WithPrometheusRegistry(reg *prometheus.Registry) Option {
-	return func(c *Config) {
-		c.PrometheusRegistry = reg
-	}
+	return func(c *Config) { c.PrometheusRegistry = reg }
 }
 
 func WithMetricsPrefix(prefix string) Option {
-	return func(c *Config) {
-		c.MetricsPrefix = prefix
-	}
+	return func(c *Config) { c.MetricsPrefix = prefix }
 }
 
 func WithMetricsNamespace(ns string) Option {
-	return func(c *Config) {
-		c.MetricsNamespace = ns
-	}
+	return func(c *Config) { c.MetricsNamespace = ns }
 }
 
 func WithMetricsSubsystem(sub string) Option {
-	return func(c *Config) {
-		c.MetricsSubsystem = sub
-	}
+	return func(c *Config) { c.MetricsSubsystem = sub }
 }
 
 func WithHistogramBuckets(buckets []float64) Option {
-	return func(c *Config) {
-		c.HistogramBuckets = buckets
-	}
+	return func(c *Config) { c.HistogramBuckets = buckets }
 }
 
 func WithLoggerHandler(handler slog.Handler) Option {
-	return func(c *Config) {
-		c.LoggerHandler = handler
-	}
+	return func(c *Config) { c.LoggerHandler = handler }
 }

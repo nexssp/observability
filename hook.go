@@ -72,7 +72,7 @@ func (h *Hook) After(ctx context.Context, err error) {
 	}
 
 	switch {
-	// ⚡ HIL SUSPENSION: Do not treat human approval pause as an application failure!
+	// HIL SUSPENSION: A human approval pause is not an application failure.
 	case errors.Is(err, dag.ErrSuspended):
 		span.SetStatus(codes.Ok, "suspended for human intervention")
 		span.SetAttributes(

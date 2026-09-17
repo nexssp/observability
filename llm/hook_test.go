@@ -30,20 +30,21 @@ func TestLLMHook_DetailedCostCalculation(t *testing.T) {
 	metrics := llm.NewMetrics(reg, "test", "ai")
 
 	costCalculated := false
-	costCalc := func(model string, prompt, cached, comp int) (float64, bool) {
+	costCalc := func(_ string, _, cached, _ int) (float64, bool) {
 		costCalculated = true
 		if cached != 80 {
 			t.Errorf("expected 80 cached tokens, got %d", cached)
 		}
+
 		return 0.0042, true
 	}
 
-	hook := llm.NewLLMHook(llm.LLMHookOptions{
+	hook := llm.NewLLMHook(llm.HookOptions{
 		Metrics:                metrics,
 		DetailedCostCalculator: costCalc,
 	})
 
-	act := action.New("llm.inference", func(ctx context.Context, req string) (testResponse, error) {
+	act := action.New("llm.inference", func(_ context.Context, _ string) (testResponse, error) {
 		return testResponse{
 			model:        "claude-3-5-sonnet",
 			promptTokens: 100,
@@ -69,14 +70,14 @@ func TestLLMHook_AsObserveSink(t *testing.T) {
 	t.Parallel()
 
 	costHit := false
-	hook := llm.NewLLMHook(llm.LLMHookOptions{
-		CostCalculator: func(model string, prompt, comp int) (float64, bool) {
+	hook := llm.NewLLMHook(llm.HookOptions{
+		CostCalculator: func(_ string, _, _ int) (float64, bool) {
 			costHit = true
+
 			return 0.001, true
 		},
 	})
 
-	// Test observe.Sink contract
 	sink := hook
 	sink.Emit(context.Background(), observe.Event{
 		Kind:     observe.KindExecuted,
@@ -90,6 +91,6 @@ func TestLLMHook_AsObserveSink(t *testing.T) {
 	})
 
 	if !costHit {
-		t.Fatal("expected LLMHook.Emit to process TokenCostProvider from observe.Event")
+		t.Fatal("expected Hook.Emit to process TokenCostProvider from observe.Event")
 	}
 }

@@ -26,6 +26,7 @@ func TestObsProviderHealthCheckTimeout(t *testing.T) {
 
 	provider.RegisterCheck("blocked_dependency", func(ctx context.Context) error {
 		<-ctx.Done()
+
 		return ctx.Err()
 	})
 
@@ -36,6 +37,7 @@ func TestObsProviderHealthCheckTimeout(t *testing.T) {
 		t.Fatalf("failed to create request: %v", err)
 	}
 	provider.HealthHandler().ServeHTTP(w, req)
+
 	if elapsed := time.Since(started); elapsed > 250*time.Millisecond {
 		t.Fatalf("health handler exceeded bounded check timeout: %v", elapsed)
 	}
@@ -56,12 +58,10 @@ func TestObsProvider_HealthAndContextHandler(t *testing.T) {
 	}
 	defer func() { _ = shutdown(context.Background()) }()
 
-	// 1. Register Health Check
-	provider.RegisterCheck("db_check", func(ctx context.Context) error {
+	provider.RegisterCheck("db_check", func(_ context.Context) error {
 		return nil
 	})
 
-	// 2. Test Health Handler
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "/healthz", http.NoBody)
 	if err != nil {
 		t.Fatalf("failed to create request: %v", err)
@@ -73,9 +73,7 @@ func TestObsProvider_HealthAndContextHandler(t *testing.T) {
 		t.Fatalf("expected 200 OK for health handler, got %d", w.Code)
 	}
 
-	// 3. Test Context Logger
-	logger := provider.Logger()
-	if logger == nil {
+	if provider.Logger() == nil {
 		t.Fatal("expected non-nil logger")
 	}
 }
@@ -98,12 +96,10 @@ func TestObsProvider_AdvancedConfigOptions(t *testing.T) {
 	}
 	defer func() { _ = shutdown(context.Background()) }()
 
-	// Verify custom registry was successfully integrated
 	if provider.MetricsHandler() == nil {
 		t.Fatal("expected non-nil metrics handler for custom registry")
 	}
 
-	// Context logger must wrap and inherit log levels from customHandler
 	if !provider.Handler().Enabled(context.Background(), slog.LevelWarn) {
 		t.Error("expected logger handler level settings to be preserved")
 	}

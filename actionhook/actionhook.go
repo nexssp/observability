@@ -3,7 +3,7 @@ package actionhook
 
 import (
 	"context"
-	"fmt"
+	"reflect"
 
 	"github.com/nexssp/kernel/action"
 	"github.com/nexssp/kernel/xctx"
@@ -13,9 +13,16 @@ import (
 )
 
 // New constructs an action.AnyHook that instruments actions with OpenTelemetry.
+// The hook drops itself at build time for ScopeSystem actions (health,
+// metrics, admin), so they do not contribute spans or Prometheus series.
 func New(provider *obs.Provider) action.AnyHook {
 	hook := provider.Hook()
+
 	return action.AnyHook{
+		OnBuild: func(meta *action.Meta, _, _ reflect.Type) bool {
+			return meta != nil && !meta.IsSystem()
+		},
+
 		Before: func(ctx context.Context, _ any, meta *action.Meta) (context.Context, error) {
 			if meta == nil {
 				return ctx, nil
@@ -38,10 +45,8 @@ func New(provider *obs.Provider) action.AnyHook {
 				n++
 			}
 
-			// Start OpenTelemetry span with stack attributes
 			ctx = hook.BeforeWithAttributes(ctx, meta.Name, stackAttrs[:n]...)
 
-			// Synchronize OTel Trace/Span IDs back into Kernel context
 			span := trace.SpanFromContext(ctx)
 			if sctx := span.SpanContext(); sctx.IsValid() {
 				ctx = action.WithTraceContext(ctx, sctx.TraceID().String(), sctx.SpanID().String())
@@ -55,12 +60,17 @@ func New(provider *obs.Provider) action.AnyHook {
 		},
 
 		OnRetry: func(ctx context.Context, _ any, attempt int, err error, _ *action.Meta) {
-			if span := trace.SpanFromContext(ctx); span.IsRecording() {
-				span.AddEvent("action.retry", trace.WithAttributes(
-					attribute.Int("attempt", attempt),
-					attribute.String("error", fmt.Sprint(err)),
-				))
+			span := trace.SpanFromContext(ctx)
+			if !span.IsRecording() {
+				return
 			}
+
+			attrs := []attribute.KeyValue{attribute.Int("attempt", attempt)}
+			if err != nil {
+				attrs = append(attrs, attribute.String("error", err.Error()))
+			}
+
+			span.AddEvent("action.retry", trace.WithAttributes(attrs...))
 		},
 
 		OnCacheHit: func(ctx context.Context, _ any, _ any, _ *action.Meta) {

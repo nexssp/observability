@@ -43,7 +43,9 @@ func getObsState(ctx context.Context) *obsState {
 	if value == nil {
 		return nil
 	}
+
 	state, _ := value.(*obsState)
+
 	return state
 }
 
@@ -58,7 +60,7 @@ type Provider struct {
 
 	latencyHisto     metric.Float64Histogram
 	errorCounter     metric.Int64Counter
-	suspendedCounter metric.Int64Counter // Tracks HIL workflows paused for human intervention
+	suspendedCounter metric.Int64Counter
 
 	checksMutex sync.RWMutex
 	checks      map[string]func(context.Context) error
@@ -69,8 +71,7 @@ var _ HealthRegistry = (*Provider)(nil)
 
 // Auto initializes standard observability using environment configuration.
 func Auto() (*Provider, func(context.Context) error, error) {
-	cfg := LoadConfigFromEnv()
-	return NewWithShutdown(cfg)
+	return NewWithShutdown(LoadConfigFromEnv())
 }
 
 // AutoWithOptions initializes observability with optional functional modifications.
@@ -81,16 +82,17 @@ func AutoWithOptions(opts ...Option) (*Provider, func(context.Context) error, er
 			opt(&cfg)
 		}
 	}
+
 	return NewWithShutdown(cfg)
 }
 
 // NewWithShutdown instantiates Provider alongside an explicit cleanup function.
 func NewWithShutdown(cfg Config) (*Provider, func(context.Context) error, error) {
-	ctx := context.Background()
-	provider, err := New(ctx, cfg)
+	provider, err := New(context.Background(), cfg)
 	if err != nil {
 		return nil, nil, fmt.Errorf("new obs provider: %w", err)
 	}
+
 	shutdown := func(shutdownCtx context.Context) error {
 		var firstError error
 		if provider.tp != nil {
@@ -103,19 +105,85 @@ func NewWithShutdown(cfg Config) (*Provider, func(context.Context) error, error)
 				firstError = fmt.Errorf("meter shutdown: %w", err)
 			}
 		}
+
 		return firstError
 	}
+
 	return provider, shutdown, nil
 }
 
 // New constructs Provider with OpenTelemetry tracer, meter, and Prometheus registry.
 func New(ctx context.Context, cfg Config, opts ...Option) (*Provider, error) {
+	applyDefaults(&cfg)
 	for _, opt := range opts {
 		if opt != nil {
 			opt(&cfg)
 		}
 	}
 
+	promRegistry := cfg.PrometheusRegistry
+	if promRegistry == nil {
+		promRegistry = prometheus.NewRegistry()
+	}
+
+	promExporter, err := otelprom.New(otelprom.WithRegisterer(promRegistry))
+	if err != nil {
+		return nil, fmt.Errorf("prom exporter: %w", err)
+	}
+
+	mergedResource, err := buildResource(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	metricName := metricNamer(cfg)
+
+	meterProviderOpts := []sdkmetric.Option{
+		sdkmetric.WithResource(mergedResource),
+		sdkmetric.WithReader(promExporter),
+	}
+	if view := histogramView(cfg, metricName); view != nil {
+		meterProviderOpts = append(meterProviderOpts, view)
+	}
+
+	meterProvider := sdkmetric.NewMeterProvider(meterProviderOpts...)
+
+	otel.SetMeterProvider(meterProvider)
+
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{}, propagation.Baggage{},
+	))
+
+	tracerProvider, err := newTracerProvider(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("tracer provider: %w", err)
+	}
+
+	meter := meterProvider.Meter("nexss/obs")
+
+	histo, errCounter, suspendedCounter, err := buildMeterInstruments(meter, metricName)
+	if err != nil {
+		return nil, err
+	}
+
+	handler := NewContextHandler(cfg.LoggerHandler)
+
+	return &Provider{
+		cfg:              cfg,
+		logger:           slog.New(handler),
+		handler:          handler,
+		tp:               tracerProvider,
+		mp:               meterProvider,
+		promRegistry:     promRegistry,
+		latencyHisto:     histo,
+		errorCounter:     errCounter,
+		suspendedCounter: suspendedCounter,
+		checks:           make(map[string]func(context.Context) error),
+		llmMetrics:       llm.NewMetrics(promRegistry, cfg.MetricsNamespace, cfg.MetricsSubsystem),
+	}, nil
+}
+
+func applyDefaults(cfg *Config) {
 	if cfg.ServiceName == "" {
 		cfg.ServiceName = "nexss"
 	}
@@ -131,19 +199,12 @@ func New(ctx context.Context, cfg Config, opts ...Option) (*Provider, error) {
 	if cfg.HealthCheckTimeout <= 0 {
 		cfg.HealthCheckTimeout = 3 * time.Second
 	}
+}
 
-	promRegistry := cfg.PrometheusRegistry
-	if promRegistry == nil {
-		promRegistry = prometheus.NewRegistry()
-	}
-
-	promExporter, err := otelprom.New(otelprom.WithRegisterer(promRegistry))
-	if err != nil {
-		return nil, fmt.Errorf("prom exporter: %w", err)
-	}
-
+func buildResource(cfg Config) (*resource.Resource, error) {
 	defaultRes := resource.Default()
-	mergedResource, err := resource.Merge(defaultRes,
+
+	merged, err := resource.Merge(defaultRes,
 		resource.NewWithAttributes(defaultRes.SchemaURL(),
 			semconv.ServiceName(cfg.ServiceName),
 			semconv.ServiceInstanceID(cfg.NodeID),
@@ -154,7 +215,11 @@ func New(ctx context.Context, cfg Config, opts ...Option) (*Provider, error) {
 		return nil, fmt.Errorf("resource merge: %w", err)
 	}
 
-	metricName := func(name string) string {
+	return merged, nil
+}
+
+func metricNamer(cfg Config) func(string) string {
+	return func(name string) string {
 		var parts []string
 		if cfg.MetricsPrefix != "" {
 			parts = append(parts, cfg.MetricsPrefix)
@@ -167,87 +232,64 @@ func New(ctx context.Context, cfg Config, opts ...Option) (*Provider, error) {
 			}
 		}
 		parts = append(parts, name)
+
 		return strings.Join(parts, "_")
 	}
+}
 
-	mpOpts := []sdkmetric.Option{
-		sdkmetric.WithResource(mergedResource),
-		sdkmetric.WithReader(promExporter),
+// histogramView returns a view customizing action latency buckets, or nil
+// when the caller did not override the default OTel histogram boundaries.
+func histogramView(cfg Config, metricName func(string) string) sdkmetric.Option {
+	if len(cfg.HistogramBuckets) == 0 {
+		return nil
 	}
 
-	if len(cfg.HistogramBuckets) > 0 {
-		view := sdkmetric.NewView(
-			sdkmetric.Instrument{Name: metricName("action_latency_ms")},
-			sdkmetric.Stream{
-				Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-					Boundaries: cfg.HistogramBuckets,
-				},
+	return sdkmetric.WithView(sdkmetric.NewView(
+		sdkmetric.Instrument{Name: metricName("action_latency_ms")},
+		sdkmetric.Stream{
+			Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
+				Boundaries: cfg.HistogramBuckets,
 			},
-		)
-		mpOpts = append(mpOpts, sdkmetric.WithView(view))
-	}
-
-	meterProvider := sdkmetric.NewMeterProvider(mpOpts...)
-	otel.SetMeterProvider(meterProvider)
-
-	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
-		propagation.TraceContext{}, propagation.Baggage{},
+		},
 	))
+}
 
-	tracerProvider, err := newTracerProvider(ctx, cfg)
-	if err != nil {
-		return nil, fmt.Errorf("tracer provider: %w", err)
-	}
-
-	meter := meterProvider.Meter("nexss/obs")
-
-	latencyHisto, err := meter.Float64Histogram(metricName("action_latency_ms"),
+func buildMeterInstruments(
+	meter metric.Meter, metricName func(string) string,
+) (
+	histo metric.Float64Histogram,
+	errCounter metric.Int64Counter,
+	suspendedCounter metric.Int64Counter,
+	err error,
+) {
+	histo, err = meter.Float64Histogram(metricName("action_latency_ms"),
 		metric.WithDescription("Action latency in ms"),
 		metric.WithUnit("ms"),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("latency histogram: %w", err)
+		return nil, nil, nil, fmt.Errorf("latency histogram: %w", err)
 	}
 
-	errorCounter, err := meter.Int64Counter(metricName("action_errors_total"),
+	errCounter, err = meter.Int64Counter(metricName("action_errors_total"),
 		metric.WithDescription("Total action errors"),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("error counter: %w", err)
+		return nil, nil, nil, fmt.Errorf("error counter: %w", err)
 	}
 
-	suspendedCounter, err := meter.Int64Counter(metricName("action_suspended_total"),
+	suspendedCounter, err = meter.Int64Counter(metricName("action_suspended_total"),
 		metric.WithDescription("Total actions/workflows suspended for human intervention (HIL)"),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("suspended counter: %w", err)
+		return nil, nil, nil, fmt.Errorf("suspended counter: %w", err)
 	}
 
-	handler := NewContextHandler(cfg.LoggerHandler)
-	logger := slog.New(handler)
-
-	llmMetrics := llm.NewMetrics(promRegistry, cfg.MetricsNamespace, cfg.MetricsSubsystem)
-
-	return &Provider{
-		cfg:              cfg,
-		logger:           logger,
-		handler:          handler,
-		tp:               tracerProvider,
-		mp:               meterProvider,
-		promRegistry:     promRegistry,
-		latencyHisto:     latencyHisto,
-		errorCounter:     errorCounter,
-		suspendedCounter: suspendedCounter,
-		checks:           make(map[string]func(context.Context) error),
-		llmMetrics:       llmMetrics,
-	}, nil
+	return histo, errCounter, suspendedCounter, nil
 }
 
 // Sink returns an implementation of kernel/observe.Sink that routes
 // Kernel lifecycle events to OpenTelemetry and Prometheus.
-func (p *Provider) Sink() *Sink {
-	return NewSink(p)
-}
+func (p *Provider) Sink() *Sink { return NewSink(p) }
 
 // Logger returns the configured contextual slog logger.
 func (p *Provider) Logger() *slog.Logger { return p.logger }
@@ -268,8 +310,10 @@ func (p *Provider) RegisterCheck(name string, checkFunc func(context.Context) er
 	if checkFunc == nil {
 		return
 	}
+
 	p.checksMutex.Lock()
 	defer p.checksMutex.Unlock()
+
 	p.checks[name] = checkFunc
 }
 
@@ -278,9 +322,7 @@ func (p *Provider) HealthHandler() http.Handler {
 	return http.HandlerFunc(p.handleHealth)
 }
 
-func (p *Provider) LLMMetrics() *llm.Metrics {
-	return p.llmMetrics
-}
+func (p *Provider) LLMMetrics() *llm.Metrics { return p.llmMetrics }
 
 func (p *Provider) handleHealth(w http.ResponseWriter, r *http.Request) {
 	p.checksMutex.RLock()
@@ -290,10 +332,12 @@ func (p *Provider) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	results := make(map[string]string, len(checksCopy))
 	status := http.StatusOK
+
 	for name, checkFunc := range checksCopy {
 		checkCtx, cancel := context.WithTimeout(r.Context(), p.cfg.HealthCheckTimeout)
 		err := checkFunc(checkCtx)
 		cancel()
+
 		if err != nil {
 			results[name] = err.Error()
 			status = http.StatusServiceUnavailable
@@ -309,6 +353,7 @@ func (p *Provider) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
+
 	if err := json.NewEncoder(w).Encode(payload); err != nil {
 		p.logger.ErrorContext(r.Context(), "health response encode failed", "error", err)
 	}
@@ -319,6 +364,7 @@ func TraceID(ctx context.Context) string {
 	if span := trace.SpanFromContext(ctx); span.SpanContext().IsValid() {
 		return span.SpanContext().TraceID().String()
 	}
+
 	return xctx.TraceIDFrom(ctx)
 }
 
@@ -326,5 +372,6 @@ func SpanID(ctx context.Context) string {
 	if span := trace.SpanFromContext(ctx); span.SpanContext().IsValid() {
 		return span.SpanContext().SpanID().String()
 	}
+
 	return xctx.SpanIDFrom(ctx)
 }
