@@ -23,7 +23,6 @@ func main() {
 	logger := provider.Logger()
 
 	processData := action.New("data.process", func(ctx context.Context, input string) (string, error) {
-
 		// 1. Dynamic Span Enrichment
 		// Safely extract the running span and add dynamic runtime variables without breaking boundaries
 		if span := trace.SpanFromContext(ctx); span.IsRecording() {
@@ -47,7 +46,6 @@ func main() {
 			res, e = executeHeavyParsing(spanCtx, input)
 			return res, e
 		}(ctx)
-
 		if err != nil {
 			return "", err
 		}

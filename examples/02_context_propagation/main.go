@@ -38,7 +38,6 @@ func main() {
 
 	// Define action which implicitly propagates the tracing context
 	getInvoice := action.New("invoice.get", func(ctx context.Context, id int) (string, error) {
-
 		// The dbtrace driver automatically links this query to the action trace
 		var total float64
 		err := clients.DB.QueryRowContext(ctx, "SELECT total FROM orders WHERE id = ?", id).Scan(&total)
