@@ -259,6 +259,10 @@ func RunComplexTask(ctx context.Context) {
 }
 ```
 
+### 5. High-Throughput Stream Telemetry & Lifecycle
+Track end-to-end execution of lazy streams (`iter.Seq2`) with zero per-item allocation overhead, capturing aggregate duration, item counts, in-flight span events, and structured stream summaries (`obs.StreamStats`):
+- See runnable example in [`examples/05_stream_telemetry`](examples/05_stream_telemetry).
+
 ---
 
 ## License

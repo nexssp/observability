@@ -375,3 +375,7 @@ func SpanID(ctx context.Context) string {
 
 	return xctx.SpanIDFrom(ctx)
 }
+
+func (p *Provider) RecordStream(ctx context.Context, stats StreamStats) {
+	p.Sink().RecordStream(ctx, stats)
+}

@@ -80,7 +80,7 @@ func TestLLMHook_AsObserveSink(t *testing.T) {
 
 	sink := hook
 	sink.Emit(context.Background(), observe.Event{
-		Kind:     observe.KindExecuted,
+		Kind:     observe.KindSuccess,
 		Action:   "llm.direct_sink",
 		Duration: 100 * time.Millisecond,
 		Response: testResponse{

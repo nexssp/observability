@@ -56,7 +56,7 @@ func TestZeroAlloc_LLMHookFiltering(t *testing.T) {
 	ctx := context.Background()
 
 	nonLLMEvent := observe.Event{
-		Kind:     observe.KindExecuted,
+		Kind:     observe.KindSuccess,
 		Action:   "standard.db_query",
 		Duration: 10 * time.Millisecond,
 		Response: struct{ Status string }{Status: "ok"},

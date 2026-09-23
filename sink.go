@@ -8,32 +8,46 @@ import (
 	"github.com/nexssp/kernel/ai/dag"
 	"github.com/nexssp/kernel/observe"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
 
-// Sink bridges kernel/observe.Event lifecycle events to OpenTelemetry and Prometheus.
 type Sink struct {
 	provider *Provider
 }
 
-// NewSink creates an observe.Sink backed by Provider.
 func NewSink(provider *Provider) *Sink {
 	return &Sink{provider: provider}
 }
 
-// Emit processes lifecycle events from kernel/observe.
 func (s *Sink) Emit(ctx context.Context, event observe.Event) {
 	if s == nil || s.provider == nil {
 		return
 	}
 
 	span := trace.SpanFromContext(ctx)
+	s.dispatchSpanEvent(span, event)
 
 	switch event.Kind {
-	case observe.KindExecuted:
+	case observe.KindSuccess:
 		s.emitExecuted(ctx, event)
 	case observe.KindError:
 		s.emitError(ctx, event, span)
+	}
+}
+
+func (s *Sink) dispatchSpanEvent(span trace.Span, event observe.Event) {
+	if !span.IsRecording() {
+		return
+	}
+
+	switch event.Kind {
+	case observe.KindTimeout:
+		span.SetStatus(codes.Error, "operation timeout")
+		span.AddEvent("action.timeout")
+	case observe.KindCanceled:
+		span.SetStatus(codes.Error, "operation canceled")
+		span.AddEvent("action.canceled")
 	case observe.KindRetry:
 		s.emitRetry(span, event)
 	case observe.KindCacheHit:
@@ -45,12 +59,42 @@ func (s *Sink) Emit(ctx context.Context, event observe.Event) {
 	case observe.KindCoalesced:
 		addActionEvent(span, "concurrency.coalesced", event.Action)
 	case observe.KindPanic:
-		if span.IsRecording() {
-			span.AddEvent("action.panic", trace.WithAttributes(
-				attribute.String("action", event.Action),
-				attribute.String("recovered", fmt.Sprint(event.Recovered)),
-			))
-		}
+		span.AddEvent("action.panic", trace.WithAttributes(
+			attribute.String("action", event.Action),
+			attribute.String("recovered", fmt.Sprint(event.Recovered)),
+		))
+	}
+}
+
+// RecordStream enriches the active OpenTelemetry span with stream execution metrics.
+func (s *Sink) RecordStream(ctx context.Context, stats StreamStats) {
+	if s == nil {
+		return
+	}
+
+	span := trace.SpanFromContext(ctx)
+	if !span.IsRecording() {
+		return
+	}
+
+	span.SetAttributes(
+		attribute.String("stream.name", stats.Stream.Name),
+		attribute.Int64("stream.items.delivered", stats.Items.Delivered),
+		attribute.Int64("stream.items.emitted", stats.Items.Emitted),
+		attribute.Int64("stream.items.dropped", stats.Items.Dropped),
+		attribute.Int64("stream.items.errors", stats.Items.Errors),
+		attribute.String("stream.status", string(stats.Exec.Status)),
+		attribute.Int64("stream.duration_ms", stats.Exec.Duration.Milliseconds()),
+	)
+
+	if stats.Bytes.Delivered > 0 {
+		span.SetAttributes(attribute.Int64("stream.bytes.delivered", stats.Bytes.Delivered))
+	}
+	if stats.Error != nil {
+		span.SetAttributes(
+			attribute.String("stream.error.kind", stats.Error.Kind),
+			attribute.String("stream.error.message", stats.Error.Message),
+		)
 	}
 }
 
@@ -71,7 +115,6 @@ func (s *Sink) emitError(ctx context.Context, event observe.Event, span trace.Sp
 				attribute.String("reason", "waiting for human approval"),
 			))
 		}
-
 		return
 	}
 
@@ -81,10 +124,6 @@ func (s *Sink) emitError(ctx context.Context, event observe.Event, span trace.Sp
 }
 
 func (s *Sink) emitRetry(span trace.Span, event observe.Event) {
-	if !span.IsRecording() {
-		return
-	}
-
 	attrs := []attribute.KeyValue{
 		attribute.String("action", event.Action),
 		attribute.Int("attempt", event.Attempt),
@@ -97,10 +136,6 @@ func (s *Sink) emitRetry(span trace.Span, event observe.Event) {
 }
 
 func addActionEvent(span trace.Span, name, action string) {
-	if !span.IsRecording() {
-		return
-	}
-
 	span.AddEvent(name, trace.WithAttributes(attribute.String("action", action)))
 }
 
