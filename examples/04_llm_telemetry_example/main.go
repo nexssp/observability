@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/nexssp/kernel/action"
+
 	obs "github.com/nexssp/observability"
 	"github.com/nexssp/observability/actionhook"
 	obsllm "github.com/nexssp/observability/llm"
@@ -32,7 +33,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to initialize observability: %v", err)
 	}
-	defer func() { _ = shutdown(context.Background()) }()
+	defer func() {
+		if shutdownErr := shutdown(context.Background()); shutdownErr != nil {
+			log.Printf("shutdown observability: %v", shutdownErr)
+		}
+	}()
 
 	// Real-world prompt cache pricing calculator (e.g. DeepSeek V3 / Claude 3.5)
 	// Cache Hit: $0.014 / 1M | Cache Miss: $0.14 / 1M | Output: $0.28 / 1M
@@ -94,7 +99,11 @@ func main() {
 			log.Fatalf("metrics server failed: %v", err)
 		}
 	}()
-	defer func() { _ = server.Shutdown(ctx) }()
+	defer func() {
+		if shutdownErr := server.Shutdown(ctx); shutdownErr != nil {
+			log.Printf("server shutdown: %v", shutdownErr)
+		}
+	}()
 
 	fmt.Println("🚀 Executing LLM turns...")
 	for i := 1; i <= 3; i++ {

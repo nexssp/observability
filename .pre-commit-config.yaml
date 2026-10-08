@@ -12,6 +12,13 @@ repos:
 
   - repo: local
     hooks:
+      - id: lint-nflow
+        name: lint:nflow
+        entry: task lint:nflow
+        language: system
+        pass_filenames: false
+        types: [go]
+
       - id: golangci-lint-fmt
         name: golangci-lint fmt
         entry: golangci-lint fmt

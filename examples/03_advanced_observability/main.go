@@ -4,21 +4,30 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/nexssp/kernel/action"
 	"github.com/nexssp/kernel/xctx"
 	"github.com/nexssp/kernel/xerr"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
 	obs "github.com/nexssp/observability"
 	"github.com/nexssp/observability/actionhook"
 	"github.com/nexssp/observability/events"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 )
 
 func main() {
-	provider, shutdown, _ := obs.Auto()
-	defer func() { _ = shutdown(context.Background()) }()
+	provider, shutdown, err := obs.Auto()
+	if err != nil {
+		log.Fatalf("initialize observability: %v", err)
+	}
+	defer func() {
+		if shutdownErr := shutdown(context.Background()); shutdownErr != nil {
+			log.Printf("shutdown observability: %v", shutdownErr)
+		}
+	}()
 
 	logger := provider.Logger()
 
@@ -34,7 +43,7 @@ func main() {
 
 		// 2. Micro-Measurement Sub-Span (with panic safety)
 		// We execute custom inline parsing inside a dedicated, isolated sub-span
-		parsed, err := func(c context.Context) (res string, e error) {
+		parsed, parseErr := func(c context.Context) (res string, e error) {
 			spanCtx, endSpan := obs.StartSpan(c, "parser.heavy_computation")
 			defer func() {
 				if r := recover(); r != nil {
@@ -46,8 +55,8 @@ func main() {
 			res, e = executeHeavyParsing(spanCtx, input)
 			return res, e
 		}(ctx)
-		if err != nil {
-			return "", err
+		if parseErr != nil {
+			return "", parseErr
 		}
 
 		// 3. Non-Blocking Async Trace Detachment
@@ -76,12 +85,16 @@ func main() {
 		Build()
 
 	fmt.Println("Executing advanced pipeline...")
-	res, _ := processData.Do(context.Background(), "heavy payload here")
+	res, err := processData.Do(context.Background(), "heavy payload here")
+	if err != nil {
+		log.Printf("processData failed: %v", err)
+		return
+	}
 	fmt.Println("Final Result:", res)
 	time.Sleep(100 * time.Millisecond) // Allow background async routine to log before exiting
 }
 
-func executeHeavyParsing(ctx context.Context, input string) (string, error) {
+func executeHeavyParsing(_ context.Context, input string) (string, error) {
 	if input == "" {
 		return "", errors.New("empty payload")
 	}

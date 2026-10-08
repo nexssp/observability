@@ -13,7 +13,9 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-var tracer = otel.Tracer("nexss/dbtrace")
+func tracer() trace.Tracer {
+	return otel.Tracer("nexss/dbtrace")
+}
 
 // DB wraps *sql.DB with OpenTelemetry tracing.
 type DB struct {
@@ -37,7 +39,7 @@ func (d *DB) Close() error {
 
 // QueryContext traces QueryContext calls. Caller owns the returned *sql.Rows.
 func (d *DB) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-	ctx, span := tracer.Start(ctx, "db.query",
+	ctx, span := tracer().Start(ctx, "db.query",
 		trace.WithAttributes(attribute.String("db.statement", query)),
 		trace.WithSpanKind(trace.SpanKindClient),
 	)
@@ -60,7 +62,7 @@ func (d *DB) QueryContext(ctx context.Context, query string, args ...any) (*sql.
 
 // ExecContext traces ExecContext calls.
 func (d *DB) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
-	ctx, span := tracer.Start(ctx, "db.exec",
+	ctx, span := tracer().Start(ctx, "db.exec",
 		trace.WithAttributes(attribute.String("db.statement", query)),
 		trace.WithSpanKind(trace.SpanKindClient),
 	)
@@ -83,7 +85,7 @@ func (d *DB) ExecContext(ctx context.Context, query string, args ...any) (sql.Re
 
 // QueryRowContext traces QueryRowContext calls.
 func (d *DB) QueryRowContext(ctx context.Context, query string, args ...any) *Row {
-	ctx, span := tracer.Start(ctx, "db.query_row",
+	ctx, span := tracer().Start(ctx, "db.query_row",
 		trace.WithAttributes(attribute.String("db.statement", query)),
 		trace.WithSpanKind(trace.SpanKindClient),
 	)
@@ -105,7 +107,7 @@ func (d *DB) PrepareContext(ctx context.Context, query string) (*Stmt, error) {
 
 // BeginTx starts a traced transaction.
 func (d *DB) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) {
-	ctx, span := tracer.Start(ctx, "db.begin",
+	ctx, span := tracer().Start(ctx, "db.begin",
 		trace.WithSpanKind(trace.SpanKindClient),
 	)
 	defer span.End()
@@ -129,7 +131,7 @@ type Stmt struct {
 
 // ExecContext executes a prepared statement with tracing.
 func (s *Stmt) ExecContext(ctx context.Context, args ...any) (sql.Result, error) {
-	ctx, span := tracer.Start(ctx, "db.stmt.exec",
+	ctx, span := tracer().Start(ctx, "db.stmt.exec",
 		trace.WithAttributes(attribute.String("db.statement", s.query)),
 		trace.WithSpanKind(trace.SpanKindClient),
 	)
@@ -148,7 +150,7 @@ func (s *Stmt) ExecContext(ctx context.Context, args ...any) (sql.Result, error)
 
 // QueryContext queries a prepared statement with tracing. Caller owns the returned *sql.Rows.
 func (s *Stmt) QueryContext(ctx context.Context, args ...any) (*sql.Rows, error) {
-	ctx, span := tracer.Start(ctx, "db.stmt.query",
+	ctx, span := tracer().Start(ctx, "db.stmt.query",
 		trace.WithAttributes(attribute.String("db.statement", s.query)),
 		trace.WithSpanKind(trace.SpanKindClient),
 	)
@@ -167,7 +169,7 @@ func (s *Stmt) QueryContext(ctx context.Context, args ...any) (*sql.Rows, error)
 
 // QueryRowContext queries a single row from a prepared statement with tracing.
 func (s *Stmt) QueryRowContext(ctx context.Context, args ...any) *Row {
-	ctx, span := tracer.Start(ctx, "db.stmt.query_row",
+	ctx, span := tracer().Start(ctx, "db.stmt.query_row",
 		trace.WithAttributes(attribute.String("db.statement", s.query)),
 		trace.WithSpanKind(trace.SpanKindClient),
 	)
@@ -218,7 +220,7 @@ type Tx struct {
 
 // ExecContext executes statement within transaction.
 func (t *Tx) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
-	ctx, span := tracer.Start(ctx, "db.tx.exec",
+	ctx, span := tracer().Start(ctx, "db.tx.exec",
 		trace.WithAttributes(attribute.String("db.statement", query)),
 		trace.WithSpanKind(trace.SpanKindClient),
 	)
@@ -237,7 +239,7 @@ func (t *Tx) ExecContext(ctx context.Context, query string, args ...any) (sql.Re
 
 // QueryContext executes query within transaction. Caller owns the returned *sql.Rows.
 func (t *Tx) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-	ctx, span := tracer.Start(ctx, "db.tx.query",
+	ctx, span := tracer().Start(ctx, "db.tx.query",
 		trace.WithAttributes(attribute.String("db.statement", query)),
 		trace.WithSpanKind(trace.SpanKindClient),
 	)
@@ -256,7 +258,7 @@ func (t *Tx) QueryContext(ctx context.Context, query string, args ...any) (*sql.
 
 // QueryRowContext executes single-row query within transaction.
 func (t *Tx) QueryRowContext(ctx context.Context, query string, args ...any) *Row {
-	ctx, span := tracer.Start(ctx, "db.tx.query_row",
+	ctx, span := tracer().Start(ctx, "db.tx.query_row",
 		trace.WithAttributes(attribute.String("db.statement", query)),
 		trace.WithSpanKind(trace.SpanKindClient),
 	)
@@ -273,7 +275,7 @@ func (t *Tx) Commit() error {
 		ctx = context.Background()
 	}
 
-	_, span := tracer.Start(ctx, "db.tx.commit", trace.WithSpanKind(trace.SpanKindClient))
+	_, span := tracer().Start(ctx, "db.tx.commit", trace.WithSpanKind(trace.SpanKindClient))
 	defer span.End()
 
 	err := t.tx.Commit()
@@ -294,7 +296,7 @@ func (t *Tx) Rollback() error {
 		ctx = context.Background()
 	}
 
-	_, span := tracer.Start(ctx, "db.tx.rollback", trace.WithSpanKind(trace.SpanKindClient))
+	_, span := tracer().Start(ctx, "db.tx.rollback", trace.WithSpanKind(trace.SpanKindClient))
 	defer span.End()
 
 	err := t.tx.Rollback()

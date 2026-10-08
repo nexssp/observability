@@ -1,0 +1,13 @@
+@description "Structured business event with tags and payload"
+@require github.com/nexssp/observability/nexssflow { trace_exporter: "stdout" }
+
+@assert: result.emitted == true
+
+{ order_id: "ord_100" }
+-> observability.emit_event @{
+  type: "order.created",
+  action: "checkout.complete",
+  entity_id: "ord_100",
+  tags: { channel: "web", region: "eu" },
+  payload: { total_usd: 129.99, items: 3 }
+}

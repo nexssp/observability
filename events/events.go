@@ -11,8 +11,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 )
 
-var tracer = otel.Tracer("nexss/events")
-
 // BusinessEvent defines structured telemetry emitted during business operations.
 type BusinessEvent struct {
 	Type      string            `json:"type"`
@@ -35,7 +33,10 @@ func Emit(ctx context.Context, logger *slog.Logger, evt BusinessEvent) {
 		evt.Tags = map[string]string{}
 	}
 
-	ctx, span := tracer.Start(ctx, "event."+evt.Type)
+	// Resolve the tracer at emit time. A package-level var would bind to
+	// whichever provider was installed at process start — the no-op default
+	// before obs.New/NewWithShutdown runs — and silently drop every span.
+	ctx, span := otel.Tracer("nexss/events").Start(ctx, "event."+evt.Type)
 	defer span.End()
 
 	span.SetAttributes(

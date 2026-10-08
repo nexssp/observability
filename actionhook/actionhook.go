@@ -7,9 +7,10 @@ import (
 
 	"github.com/nexssp/kernel/action"
 	"github.com/nexssp/kernel/xctx"
-	obs "github.com/nexssp/observability"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+
+	obs "github.com/nexssp/observability"
 )
 
 // New constructs an action.AnyHook that instruments actions with OpenTelemetry.
@@ -55,7 +56,7 @@ func New(provider *obs.Provider) action.AnyHook {
 			return ctx, nil
 		},
 
-		After: func(ctx context.Context, _ any, _ any, err error, _ *action.Meta) {
+		After: func(ctx context.Context, _, _ any, err error, _ *action.Meta) {
 			hook.After(ctx, err)
 		},
 
@@ -73,7 +74,7 @@ func New(provider *obs.Provider) action.AnyHook {
 			span.AddEvent("action.retry", trace.WithAttributes(attrs...))
 		},
 
-		OnCacheHit: func(ctx context.Context, _ any, _ any, _ *action.Meta) {
+		OnCacheHit: func(ctx context.Context, _, _ any, _ *action.Meta) {
 			if span := trace.SpanFromContext(ctx); span.IsRecording() {
 				span.AddEvent("cache.hit")
 				span.SetAttributes(attribute.Bool("cache.hit", true))

@@ -1,0 +1,8 @@
+@description "Every action emits an OTel span and one action_latency_ms sample"
+@require github.com/nexssp/observability/nexssflow { trace_exporter: "stdout" }
+
+@assert: result.value == "hello"
+
+{ value: "hello" }
+-> noop
+-> noop

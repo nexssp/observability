@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/nexssp/kernel/observe"
+
 	obs "github.com/nexssp/observability"
 	"github.com/nexssp/observability/llm"
 )

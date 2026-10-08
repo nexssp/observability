@@ -35,7 +35,11 @@ func newTracerProvider(ctx context.Context, cfg Config) (*sdktrace.TracerProvide
 	}
 
 	// Only attach network OTLP exporter if an endpoint was provided
-	if cfg.OTLPEndpoint != "" {
+	switch {
+	case cfg.TraceProcessor != nil:
+		tpOpts = append(tpOpts, sdktrace.WithSpanProcessor(cfg.TraceProcessor))
+
+	case cfg.OTLPEndpoint != "":
 		raw := cfg.OTLPEndpoint
 		if !strings.Contains(raw, "://") {
 			raw = "http://" + raw

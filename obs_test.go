@@ -9,8 +9,9 @@ import (
 	"testing"
 	"time"
 
-	obs "github.com/nexssp/observability"
 	"github.com/prometheus/client_golang/prometheus"
+
+	obs "github.com/nexssp/observability"
 )
 
 func TestObsProviderHealthCheckTimeout(t *testing.T) {

@@ -7,8 +7,9 @@ import (
 
 	"github.com/nexssp/kernel/action"
 	"github.com/nexssp/kernel/observe"
-	"github.com/nexssp/observability/llm"
 	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/nexssp/observability/llm"
 )
 
 type testResponse struct {

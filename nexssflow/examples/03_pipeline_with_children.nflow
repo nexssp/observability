@@ -1,0 +1,15 @@
+@description "Named @pipeline emits a parent span wrapping all nested actions"
+@require github.com/nexssp/observability/nexssflow { trace_exporter: "stdout" }
+
+@pipeline checkout
+  { items: 3 }
+  -> sleep @{ duration_ms: 5 }
+  -> observability.emit_event @{
+    type: "checkout.completed",
+    action: "pipeline.checkout",
+    entity_id: "ord_200"
+  }
+@end
+
+@assert: result.emitted == true
+{} -> pipeline.checkout

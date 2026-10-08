@@ -11,17 +11,21 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 // Config holds observability initialization parameters.
 type Config struct {
-	ServiceName        string
-	NodeID             string
-	Env                string
-	OTLPEndpoint       string
-	OTLPHeaders        map[string]string
-	OTLPInsecure       bool
+	ServiceName  string
+	NodeID       string
+	Env          string
+	OTLPEndpoint string
+	OTLPHeaders  map[string]string
+	OTLPInsecure bool
+	// SampleRatio must be in [0,1]. A zero value defaults to 1 unless
+	// SampleRatioSet is true, which distinguishes explicit zero sampling.
 	SampleRatio        float64
+	SampleRatioSet     bool
 	HealthCheckTimeout time.Duration
 
 	PrometheusRegistry *prometheus.Registry
@@ -30,6 +34,7 @@ type Config struct {
 	MetricsSubsystem   string
 	HistogramBuckets   []float64
 	LoggerHandler      slog.Handler
+	TraceProcessor     sdktrace.SpanProcessor
 }
 
 // LoadConfigFromEnv builds Config from standard environment variables.
@@ -44,10 +49,12 @@ func LoadConfigFromEnv() Config {
 		env = "local"
 	}
 
-	sampleRatio := 1.0
+	var sampleRatio float64
+	sampleRatioSet := false
 	if rawRatio := os.Getenv("SAMPLE_RATIO"); rawRatio != "" {
-		if val, err := strconv.ParseFloat(rawRatio, 64); err == nil && val >= 0 && val <= 1.0 {
+		if val, err := strconv.ParseFloat(strings.TrimSpace(rawRatio), 64); err == nil {
 			sampleRatio = val
+			sampleRatioSet = true
 		}
 	}
 
@@ -59,6 +66,7 @@ func LoadConfigFromEnv() Config {
 		OTLPHeaders:        parseOTLPHeaders(os.Getenv("OTLP_HEADERS")),
 		OTLPInsecure:       os.Getenv("OTLP_INSECURE") == "true" || strings.Contains(os.Getenv("OTLP_ENDPOINT"), "localhost"),
 		SampleRatio:        sampleRatio,
+		SampleRatioSet:     sampleRatioSet,
 		HealthCheckTimeout: healthCheckTimeoutFromEnv(),
 	}
 }

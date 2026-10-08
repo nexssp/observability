@@ -6,15 +6,17 @@ import (
 	"io"
 	"iter"
 	"log"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"time"
 
 	"github.com/nexssp/kernel/action"
-	obs "github.com/nexssp/observability"
-	"github.com/nexssp/observability/actionhook"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+
+	obs "github.com/nexssp/observability"
+	"github.com/nexssp/observability/actionhook"
 )
 
 type Transaction struct {
@@ -27,9 +29,14 @@ func main() {
 	// Initialize telemetry provider
 	provider, shutdown, err := obs.Auto()
 	if err != nil {
-		log.Fatalf("failed to init telemetry: %v", err)
+		log.Printf("failed to init telemetry: %v", err)
+		return
 	}
-	defer func() { _ = shutdown(context.Background()) }()
+	defer func() {
+		if shutdownErr := shutdown(context.Background()); shutdownErr != nil {
+			log.Printf("shutdown observability: %v", shutdownErr)
+		}
+	}()
 
 	// Enable in-memory trace collection for visual waterfall display
 	ctx, collector := obs.WithCollector(context.Background())
@@ -70,7 +77,8 @@ func main() {
 	startTime := time.Now()
 	seq, err := streamAction.Do(ctx, 500)
 	if err != nil {
-		log.Fatalf("stream init failed: %v", err)
+		log.Printf("stream init failed: %v", err)
+		return
 	}
 
 	span := trace.SpanFromContext(ctx)
@@ -165,7 +173,7 @@ func printTraceWaterfall(collector *obs.TraceCollector) {
 
 func printPrometheusMetrics(provider *obs.Provider) {
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/metrics", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/metrics", http.NoBody)
 	provider.MetricsHandler().ServeHTTP(rec, req)
 
 	fmt.Println("\n📈 [Live Prometheus Metrics]")

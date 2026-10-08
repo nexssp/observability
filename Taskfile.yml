@@ -1,0 +1,289 @@
+version: '3'
+
+# Every command in this file is meant to be run from observability/.
+# Run `task --list` to see the short descriptions.
+vars:
+  NFLOW: 'go run github.com/nexssp/flow/cmd/nflow'
+
+tasks:
+  default:
+    desc: Show every available task
+    cmds:
+      - task --list
+
+  # ── build ────────────────────────────────────────────────────────
+
+  build:
+    desc: Build every Go package
+    cmds:
+      - go build ./...
+
+  # ── test ─────────────────────────────────────────────────────────
+  #
+  # Per-tree tasks declare their own sources; Task hashes them after a
+  # successful run and skips the next invocation if nothing changed.
+  # A red test never caches. Aggregates (test, test:race) carry no
+  # sources of their own — they chain the per-tree tasks, each of which
+  # decides independently.
+  #
+  # test:full / test:race:full bypass the cache for CI and one-off
+  # verification. Use those when you must see a fresh run.
+
+  test:
+    desc: Fast short tests; skips trees whose sources are unchanged
+    deps:
+      - test:core
+      - test:actionhook
+      - test:dbtrace
+      - test:events
+      - test:httptrace
+      - test:llm
+      - test:nexssflow
+      - test:examples
+
+  test:full:
+    desc: Short tests with no cache (CI or one-off verification)
+    cmds:
+      - go test -short -count=1 ./...
+
+  test:race:
+    desc: Race tests; skips trees whose sources are unchanged
+    deps:
+      - test:core:race
+      - test:actionhook:race
+      - test:dbtrace:race
+      - test:events:race
+      - test:httptrace:race
+      - test:llm:race
+      - test:nexssflow:race
+      - test:examples:race
+
+  test:race:full:
+    desc: Race tests with no cache (CI or one-off verification)
+    cmds:
+      - go test -race -count=1 ./...
+
+  test:core:
+    desc: Short tests for the root obs package
+    sources:
+      - '*.go'
+      - 'go.mod'
+      - 'go.sum'
+    cmds:
+      - go test -short .
+
+  test:core:race:
+    desc: Race tests for the root obs package
+    sources:
+      - '*.go'
+      - 'go.mod'
+      - 'go.sum'
+    cmds:
+      - go test -race -short .
+
+  test:actionhook:
+    desc: Short tests for actionhook/
+    sources:
+      - 'actionhook/**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+    cmds:
+      - go test -short ./actionhook/...
+
+  test:actionhook:race:
+    desc: Race tests for actionhook/
+    sources:
+      - 'actionhook/**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+    cmds:
+      - go test -race -short ./actionhook/...
+
+  test:dbtrace:
+    desc: Short tests for dbtrace/
+    sources:
+      - 'dbtrace/**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+    cmds:
+      - go test -short ./dbtrace/...
+
+  test:dbtrace:race:
+    desc: Race tests for dbtrace/
+    sources:
+      - 'dbtrace/**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+    cmds:
+      - go test -race -short ./dbtrace/...
+
+  test:events:
+    desc: Short tests for events/
+    sources:
+      - 'events/**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+    cmds:
+      - go test -short ./events/...
+
+  test:events:race:
+    desc: Race tests for events/
+    sources:
+      - 'events/**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+    cmds:
+      - go test -race -short ./events/...
+
+  test:httptrace:
+    desc: Short tests for httptrace/
+    sources:
+      - 'httptrace/**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+    cmds:
+      - go test -short ./httptrace/...
+
+  test:httptrace:race:
+    desc: Race tests for httptrace/
+    sources:
+      - 'httptrace/**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+    cmds:
+      - go test -race -short ./httptrace/...
+
+  test:llm:
+    desc: Short tests for llm/
+    sources:
+      - 'llm/**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+    cmds:
+      - go test -short ./llm/...
+
+  test:llm:race:
+    desc: Race tests for llm/
+    sources:
+      - 'llm/**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+    cmds:
+      - go test -race -short ./llm/...
+
+  test:nexssflow:
+    desc: Short tests for nexssflow/ (Flow adapter)
+    sources:
+      - 'nexssflow/**/*.go'
+      - 'nexssflow/examples/*.nflow'
+      - 'go.mod'
+      - 'go.sum'
+    cmds:
+      - go test -short ./nexssflow/...
+
+  test:nexssflow:race:
+    desc: Race tests for nexssflow/ (Flow adapter)
+    sources:
+      - 'nexssflow/**/*.go'
+      - 'nexssflow/examples/*.nflow'
+      - 'go.mod'
+      - 'go.sum'
+    cmds:
+      - go test -race -short ./nexssflow/...
+
+  test:examples:
+    desc: Short tests for examples/
+    sources:
+      - 'examples/**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+    cmds:
+      - go test -short ./examples/...
+
+  test:examples:race:
+    desc: Race tests for examples/
+    sources:
+      - 'examples/**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+    cmds:
+      - go test -race -short ./examples/...
+
+  bench:
+    desc: Run Go benchmarks
+    cmds:
+      - go test ./... -run '^$' -bench=. -benchmem
+
+  # ── nflow examples ───────────────────────────────────────────────
+
+  lint:nflow:
+    desc: Lint the .nflow fixtures under nexssflow/examples
+    cmds:
+      - '{{.NFLOW}} lint ./nexssflow/examples/...'
+
+  examples:
+    desc: Run every .nflow adapter example
+    cmds:
+      - '{{.NFLOW}} run nexssflow/examples/01_auto_instrumentation.nflow'
+      - '{{.NFLOW}} run nexssflow/examples/02_business_event.nflow'
+      - '{{.NFLOW}} run nexssflow/examples/03_pipeline_with_children.nflow'
+      - '{{.NFLOW}} run nexssflow/examples/04_error_recovery.nflow'
+
+  # ── quality ──────────────────────────────────────────────────────
+
+  vet:
+    desc: Run go vet across all packages
+    cmds:
+      - go vet ./...
+
+  fmt:
+    desc: Apply configured gofumpt and goimports formatters
+    cmds:
+      - golangci-lint fmt
+
+  fmt:check:
+    desc: Check gofumpt and goimports formatting without editing files
+    cmds:
+      - golangci-lint fmt --diff
+
+  lint:
+    desc: Run configured golangci-lint checks
+    cmds:
+      - golangci-lint run ./...
+
+  lint:new:
+    desc: Run golangci-lint only on code changed since origin/main
+    cmds:
+      - golangci-lint run --new-from-rev=origin/main
+
+  lint:fix:
+    desc: Run golangci-lint with auto-fix only on code changed since origin/main
+    cmds:
+      - golangci-lint run --fix --new-from-rev=origin/main
+
+  check:
+    desc: Full local gate — format check, lint, vet, race tests, nflow lint
+    cmds:
+      - task: fmt:check
+      - task: lint
+      - task: vet
+      - task: test:race
+      - task: lint:nflow
+
+  pre-push:
+    desc: Fast pre-push gate — lint of new code and short tests
+    deps:
+      - lint:new
+      - test
+
+  # ── maintenance ──────────────────────────────────────────────────
+
+  tidy:
+    desc: Tidy this module
+    cmds:
+      - go mod tidy
+
+  clean:
+    desc: Remove local test artifacts
+    cmds:
+      - rm -f coverage.txt coverage.html

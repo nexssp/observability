@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/nexssp/kernel/action"
+
 	obs "github.com/nexssp/observability"
 	"github.com/nexssp/observability/actionhook"
 )
@@ -18,7 +19,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to initialize observability: %v", err)
 	}
-	defer func() { _ = shutdown(context.Background()) }()
+	defer func() {
+		if shutdownErr := shutdown(context.Background()); shutdownErr != nil {
+			log.Printf("shutdown observability: %v", shutdownErr)
+		}
+	}()
 
 	// 2. Build the global AnyHook adapter
 	telemetryHook := actionhook.New(provider)
@@ -38,7 +43,7 @@ func main() {
 	mux.Handle("GET /healthz", provider.HealthHandler())
 
 	// Standard liveness check registration
-	provider.RegisterCheck("system_memory", func(ctx context.Context) error {
+	provider.RegisterCheck("system_memory", func(_ context.Context) error {
 		return nil
 	})
 

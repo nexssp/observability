@@ -7,13 +7,13 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"math"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/nexssp/kernel/xctx"
-	"github.com/nexssp/observability/llm"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel"
@@ -25,6 +25,8 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/nexssp/observability/llm"
 )
 
 type obsCtxKey struct{}
@@ -114,7 +116,9 @@ func NewWithShutdown(cfg Config) (*Provider, func(context.Context) error, error)
 
 // New constructs Provider with OpenTelemetry tracer, meter, and Prometheus registry.
 func New(ctx context.Context, cfg Config, opts ...Option) (*Provider, error) {
-	applyDefaults(&cfg)
+	if err := applyDefaults(&cfg); err != nil {
+		return nil, err
+	}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(&cfg)
@@ -183,14 +187,17 @@ func New(ctx context.Context, cfg Config, opts ...Option) (*Provider, error) {
 	}, nil
 }
 
-func applyDefaults(cfg *Config) {
+func applyDefaults(cfg *Config) error {
 	if cfg.ServiceName == "" {
 		cfg.ServiceName = "nexss"
 	}
 	if cfg.NodeID == "" {
 		cfg.NodeID = nodeID(cfg.ServiceName)
 	}
-	if cfg.SampleRatio <= 0 {
+	if math.IsNaN(cfg.SampleRatio) || cfg.SampleRatio < 0 || cfg.SampleRatio > 1 {
+		return fmt.Errorf("sample ratio must be between 0 and 1, got %v", cfg.SampleRatio)
+	}
+	if cfg.SampleRatio == 0 && !cfg.SampleRatioSet {
 		cfg.SampleRatio = 1.0
 	}
 	if cfg.Env == "" {
@@ -199,6 +206,7 @@ func applyDefaults(cfg *Config) {
 	if cfg.HealthCheckTimeout <= 0 {
 		cfg.HealthCheckTimeout = 3 * time.Second
 	}
+	return nil
 }
 
 func buildResource(cfg Config) (*resource.Resource, error) {

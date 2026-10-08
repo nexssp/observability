@@ -4,11 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"net/http"
+	"os"
 	"time"
 
 	_ "github.com/ncruces/go-sqlite3/driver"
 	"github.com/nexssp/kernel/action"
+
 	obs "github.com/nexssp/observability"
 	"github.com/nexssp/observability/actionhook"
 	"github.com/nexssp/observability/dbtrace"
@@ -21,35 +24,50 @@ type Clients struct {
 }
 
 func main() {
-	provider, shutdown, _ := obs.Auto()
-	defer func() { _ = shutdown(context.Background()) }()
+	os.Exit(run())
+}
 
-	// Initialize SQL database and wrap with OpenTelemetry tracer
-	rawDB, _ := sql.Open("sqlite", ":memory:")
+func run() int {
+	provider, shutdown, err := obs.Auto()
+	if err != nil {
+		log.Printf("initialize observability: %v", err)
+		return 1
+	}
+	defer func() {
+		if shutdownErr := shutdown(context.Background()); shutdownErr != nil {
+			log.Printf("shutdown observability: %v", shutdownErr)
+		}
+	}()
+
+	rawDB, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		log.Printf("open sqlite: %v", err)
+		return 1
+	}
 	defer rawDB.Close()
-	_, _ = rawDB.ExecContext(context.Background(), "CREATE TABLE orders (id INTEGER, total REAL); INSERT INTO orders VALUES (9, 29.99);")
+	if _, execErr := rawDB.ExecContext(context.Background(), "CREATE TABLE orders (id INTEGER, total REAL); INSERT INTO orders VALUES (9, 29.99);"); execErr != nil {
+		log.Printf("seed sqlite: %v", execErr)
+		return 1
+	}
 
 	tracedDB := dbtrace.Wrap(rawDB)
-
-	// Wrap HTTP Client for outbound request tracing
 	tracedClient := httptrace.WrapClient(&http.Client{Timeout: 3 * time.Second})
 
 	clients := &Clients{DB: tracedDB, Client: tracedClient}
 
-	// Define action which implicitly propagates the tracing context
 	getInvoice := action.New("invoice.get", func(ctx context.Context, id int) (string, error) {
-		// The dbtrace driver automatically links this query to the action trace
 		var total float64
-		err := clients.DB.QueryRowContext(ctx, "SELECT total FROM orders WHERE id = ?", id).Scan(&total)
-		if err != nil {
-			return "", err
+		if scanErr := clients.DB.QueryRowContext(ctx, "SELECT total FROM orders WHERE id = ?", id).Scan(&total); scanErr != nil {
+			return "", scanErr
 		}
 
-		// The httptrace client injects W3C Trace headers so downstream APIs continue the trace
-		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/repos/nexssp/kernel", http.NoBody)
-		resp, err := clients.Client.Do(req)
-		if err != nil {
-			return "", fmt.Errorf("outbound request failed: %w", err)
+		req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/repos/nexssp/kernel", http.NoBody)
+		if reqErr != nil {
+			return "", fmt.Errorf("build request: %w", reqErr)
+		}
+		resp, doErr := clients.Client.Do(req)
+		if doErr != nil {
+			return "", fmt.Errorf("outbound request failed: %w", doErr)
 		}
 		defer resp.Body.Close()
 
@@ -62,7 +80,8 @@ func main() {
 	result, err := getInvoice.Do(context.Background(), 9)
 	if err != nil {
 		fmt.Println("Execution error:", err)
-		return
+		return 1
 	}
 	fmt.Println("Result:", result)
+	return 0
 }
