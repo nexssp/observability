@@ -18,7 +18,10 @@ type Hook struct {
 	tracer   trace.Tracer
 }
 
-// Hook initializes an execution Hook from the Provider.
+// Hook initializes an execution Hook from the Provider. The tracer is
+// taken from the provider's own TracerProvider rather than the global
+// one, so hooks stay valid when another Provider is installed on the
+// global slot (parallel tests, multiple providers in one process).
 func (p *Provider) Hook() *Hook {
 	return &Hook{
 		provider: p,

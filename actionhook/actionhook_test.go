@@ -9,6 +9,7 @@ import (
 	"github.com/nexssp/kernel/action"
 	"github.com/nexssp/kernel/ai/dag"
 	"github.com/nexssp/kernel/xerr"
+	"go.opentelemetry.io/otel"
 
 	obs "github.com/nexssp/observability"
 	"github.com/nexssp/observability/actionhook"
@@ -17,6 +18,12 @@ import (
 func newProvider(t *testing.T) *obs.Provider {
 	t.Helper()
 
+	// Restore the previous global providers after the test so parallel
+	// tests that create their own providers do not observe a torn-down
+	// global TracerProvider from a sibling test's cleanup.
+	previousTracer := otel.GetTracerProvider()
+	previousMeter := otel.GetMeterProvider()
+
 	provider, shutdown, err := obs.NewWithShutdown(obs.Config{
 		ServiceName: "test-service",
 		Env:         "test",
@@ -24,7 +31,11 @@ func newProvider(t *testing.T) *obs.Provider {
 	if err != nil {
 		t.Fatalf("failed to init obs provider: %v", err)
 	}
-	t.Cleanup(func() { _ = shutdown(context.Background()) })
+	t.Cleanup(func() {
+		_ = shutdown(context.Background())
+		otel.SetTracerProvider(previousTracer)
+		otel.SetMeterProvider(previousMeter)
+	})
 
 	return provider
 }

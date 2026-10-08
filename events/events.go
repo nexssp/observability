@@ -22,6 +22,11 @@ type BusinessEvent struct {
 }
 
 // Emit records a business telemetry event with explicit JSON handling and tracing spans.
+//
+// The tracer is resolved at call time, after the caller has installed its
+// TracerProvider. A package-level `var tracer = otel.Tracer(...)` would run
+// during package init, before any provider exists, and capture the default
+// no-op provider — every span would then be discarded.
 func Emit(ctx context.Context, logger *slog.Logger, evt BusinessEvent) {
 	if logger == nil {
 		logger = slog.Default()
@@ -33,9 +38,6 @@ func Emit(ctx context.Context, logger *slog.Logger, evt BusinessEvent) {
 		evt.Tags = map[string]string{}
 	}
 
-	// Resolve the tracer at emit time. A package-level var would bind to
-	// whichever provider was installed at process start — the no-op default
-	// before obs.New/NewWithShutdown runs — and silently drop every span.
 	ctx, span := otel.Tracer("nexss/events").Start(ctx, "event."+evt.Type)
 	defer span.End()
 

@@ -13,6 +13,10 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// tracer resolves the OTel tracer at call time. A package-level
+// `var tracer = otel.Tracer(...)` runs during package init, before any
+// TracerProvider is installed, and captures the default no-op provider —
+// every span would be discarded without a trace.
 func tracer() trace.Tracer {
 	return otel.Tracer("nexss/dbtrace")
 }

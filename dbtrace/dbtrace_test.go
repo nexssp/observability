@@ -6,6 +6,9 @@ import (
 	"testing"
 
 	_ "github.com/ncruces/go-sqlite3/driver"
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
 	"github.com/nexssp/observability/dbtrace"
 )
@@ -65,5 +68,31 @@ func TestDBTrace_ExecQueryTx(t *testing.T) {
 
 	if count != 1 {
 		t.Fatalf("expected 1 row, got %d", count)
+	}
+}
+
+func TestDBTrace_EmitsSpans(t *testing.T) {
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	previous := otel.GetTracerProvider()
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() {
+		otel.SetTracerProvider(previous)
+		_ = tp.Shutdown(context.Background())
+	})
+
+	sqlDB, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sqlDB.Close()
+
+	tracedDB := dbtrace.Wrap(sqlDB)
+	if _, err := tracedDB.ExecContext(context.Background(), "SELECT 1"); err != nil {
+		t.Fatalf("ExecContext failed: %v", err)
+	}
+
+	if got := len(exporter.GetSpans()); got == 0 {
+		t.Fatal("dbtrace emitted no spans")
 	}
 }
