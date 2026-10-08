@@ -1,0 +1,83 @@
+@description "Observable checkout: parallel checks, a named trace, and a business event"
+@require github.com/nexssp/observability/nexssflow {
+  service_name: "checkout-demo",
+  env: "local",
+  trace_exporter: "stdout",
+  sample_ratio: 1.0
+}
+
+@schema CheckoutIdentity {
+  OrderID    string `json:"order_id" validate:"required"`
+  CustomerID string `json:"customer_id" validate:"required"`
+}
+@schema CheckoutRequest {
+  CheckoutIdentity
+  Channel  string  `json:"channel" validate:"required"`
+  TotalUSD float64 `json:"total_usd" validate:"required"`
+}
+
+@assert: result.order_id == "ord_2048"
+@assert: result.customer_id == "cus_184"
+@assert: result.outcome == "accepted"
+@assert: result.inventory_reserved == true
+@assert: result.risk_decision == "allow"
+@assert: result.event_emitted == true
+
+@pipeline checkout
+  # Validate the request contract before the adapter work begins.
+  schema.validate @{ name: "CheckoutRequest" }
+  -> sleep @{ duration_ms: 20 }
+  # Inline deterministic stand-ins keep both checks independently traceable.
+  -> parallel {
+    inventory: with @{ inventory: { reserved: true, reservation_id: "res_7f3a" } },
+    risk: with @{ risk: { decision: "allow", score: 12 } },
+  }
+  -> {
+    order_id: .inventory.order_id,
+    customer_id: .inventory.customer_id,
+    channel: .inventory.channel,
+    total_usd: .inventory.total_usd,
+    inventory: .inventory.inventory,
+    risk: .risk.risk,
+  }
+  -> match(.risk.decision) {
+    "allow" -> with @{ outcome: "accepted" },
+    "deny"  -> with @{ outcome: "declined" },
+    _       -> with @{ outcome: "review" },
+  }
+  # Keep the receipt while emitting the event: emit_event returns its own status.
+  -> parallel {
+    receipt: noop,
+    business_event: observability.emit_event @{
+      type: "checkout.decision",
+      action: "pipeline.checkout",
+      entity_id: .order_id,
+      tags: { outcome: .outcome, channel: .channel },
+      payload: {
+        order_id: .order_id,
+        customer_id: .customer_id,
+        outcome: .outcome,
+        total_usd: .total_usd,
+        reservation_id: .inventory.reservation_id,
+        inventory_reserved: .inventory.reserved,
+        risk_decision: .risk.decision,
+        risk_score: .risk.score
+      }
+    },
+  }
+  -> {
+    order_id: .receipt.order_id,
+    customer_id: .receipt.customer_id,
+    outcome: .receipt.outcome,
+    inventory_reserved: .receipt.inventory.reserved,
+    risk_decision: .receipt.risk.decision,
+    event_emitted: .business_event.emitted
+  }
+@end
+
+{
+  order_id: "ord_2048",
+  channel: "web",
+  total_usd: 129.99,
+  customer_id: "cus_184"
+} -> pipeline.checkout

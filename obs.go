@@ -313,6 +313,9 @@ func (p *Provider) MetricsHandler() http.Handler {
 // Config exposes active Provider configuration.
 func (p *Provider) Config() Config { return p.cfg }
 
+// Tracer returns a tracer backed by this Provider's tracer provider.
+func (p *Provider) Tracer(name string) trace.Tracer { return p.tp.Tracer(name) }
+
 // RegisterCheck attaches a readiness health probe.
 func (p *Provider) RegisterCheck(name string, checkFunc func(context.Context) error) {
 	if checkFunc == nil {

@@ -1,6 +1,8 @@
 package nexssflow_test
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/nexssp/flow/core"
@@ -41,4 +43,17 @@ func TestBundle_RejectsUnknownOption(t *testing.T) {
 		}
 	}()
 	nexssflow.Bundle(map[string]string{"unknown_option": "x"})
+}
+
+func TestBundle_MalformedSampleRatioPanicsWithFieldName(t *testing.T) {
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			t.Fatal("expected panic for malformed sample_ratio")
+		}
+		if message := fmt.Sprint(recovered); !strings.Contains(message, "sample_ratio") {
+			t.Fatalf("panic = %q, want field name sample_ratio", message)
+		}
+	}()
+	nexssflow.Bundle(map[string]string{"sample_ratio": "abc"})
 }

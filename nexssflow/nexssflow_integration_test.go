@@ -28,6 +28,8 @@ type exportedSpan struct {
 	traceID      []byte
 	spanID       []byte
 	parentSpanID []byte
+	serviceName  string
+	environment  string
 	durationMS   float64
 	hasDuration  bool
 }
@@ -75,9 +77,14 @@ func TestFlowAdapter_RequireInstrumentsNamedPipelineAndEventAndHostShutsDownOnce
 						parentSpanID: append([]byte(nil), span.GetParentSpanId()...),
 					}
 					for _, attribute := range span.GetAttributes() {
-						if attribute.GetKey() == "nexss.duration_ms" {
+						switch attribute.GetKey() {
+						case "nexss.duration_ms":
 							got.durationMS = attribute.GetValue().GetDoubleValue()
 							got.hasDuration = true
+						case "nexss.service.name":
+							got.serviceName = attribute.GetValue().GetStringValue()
+						case "nexss.env":
+							got.environment = attribute.GetValue().GetStringValue()
 						}
 					}
 					requestSpans = append(requestSpans, got)
@@ -142,6 +149,12 @@ func TestFlowAdapter_RequireInstrumentsNamedPipelineAndEventAndHostShutsDownOnce
 	spans := append([]exportedSpan(nil), exported...)
 	exportedMu.Unlock()
 	rootSpan := exactlyOneSpan(t, spans, "flow.run")
+	if rootSpan.serviceName != "nexssflow-integration" {
+		t.Errorf("flow.run nexss.service.name = %q, want %q", rootSpan.serviceName, "nexssflow-integration")
+	}
+	if rootSpan.environment != "test" {
+		t.Errorf("flow.run nexss.env = %q, want %q", rootSpan.environment, "test")
+	}
 	pipelineSpan := exactlyOneSpan(t, spans, "action.pipeline.checkout")
 	sleepSpan := exactlyOneSpan(t, spans, "action.runtime.sleep")
 	eventActionSpan := exactlyOneSpan(t, spans, "action.observability.emit_event")

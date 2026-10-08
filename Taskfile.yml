@@ -224,6 +224,7 @@ tasks:
   examples:
     desc: Run every .nflow adapter example
     cmds:
+      - '{{.NFLOW}} run nexssflow/examples/observability.nflow'
       - '{{.NFLOW}} run nexssflow/examples/01_auto_instrumentation.nflow'
       - '{{.NFLOW}} run nexssflow/examples/02_business_event.nflow'
       - '{{.NFLOW}} run nexssflow/examples/03_pipeline_with_children.nflow'

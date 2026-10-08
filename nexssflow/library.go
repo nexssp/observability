@@ -7,7 +7,7 @@ import (
 
 	"github.com/nexssp/flow/core"
 	"github.com/nexssp/kernel/action"
-	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
 	obs "github.com/nexssp/observability"
@@ -22,7 +22,7 @@ func init() {
 
 // Config overrides the environment-derived observability configuration.
 // Every field is optional; an empty value inherits from LoadConfigFromEnv
-// (OTLP_ENDPOINT, SERVICE_NAME, ENV, SAMPLE_RATIO, OTLP_INSECURE, METRICS_*).
+// (SERVICE_NAME, ENV, SAMPLE_RATIO, OTLP_ENDPOINT, and OTLP_INSECURE).
 type Config struct {
 	ServiceName      string  `flow:"service_name"`
 	Env              string  `flow:"env"`
@@ -33,6 +33,9 @@ type Config struct {
 	MetricsNamespace string  `flow:"metrics_namespace"`
 	MetricsSubsystem string  `flow:"metrics_subsystem"`
 	TraceExporter    string  `flow:"trace_exporter"` // stdout | otlp | none
+
+	sampleRatioSet  bool
+	otlpInsecureSet bool
 }
 
 // Bundle is the standard Flow bundle contract. Provider configuration is
@@ -44,7 +47,7 @@ type Config struct {
 // provider) is a programmer or configuration error; panic matches the
 // convention used by every transport adapter.
 func Bundle(opts map[string]string) core.Bundle {
-	overrides, err := core.Decode[Config](opts)
+	overrides, err := decodeOverrides(opts)
 	if err != nil {
 		panic("nexssflow: " + err.Error())
 	}
@@ -64,6 +67,20 @@ func Bundle(opts map[string]string) core.Bundle {
 	}
 
 	return buildBundle(provider, shutdown)
+}
+
+func decodeOverrides(opts map[string]string) (Config, error) {
+	overrides, err := core.Decode[Config](opts)
+	if err != nil {
+		return Config{}, err
+	}
+	if value, ok := opts["sample_ratio"]; ok && value != "" {
+		overrides.sampleRatioSet = true
+	}
+	if value, ok := opts["otlp_insecure"]; ok && value != "" {
+		overrides.otlpInsecureSet = true
+	}
+	return overrides, nil
 }
 
 // NewBundle is the programmatic entry point for hosts that own the
@@ -86,15 +103,15 @@ func applyOverrides(cfg *obs.Config, overrides Config) {
 	if overrides.Env != "" {
 		cfg.Env = overrides.Env
 	}
-	if overrides.SampleRatio != 0 {
+	if overrides.sampleRatioSet || overrides.SampleRatio != 0 {
 		cfg.SampleRatio = overrides.SampleRatio
 		cfg.SampleRatioSet = true
 	}
 	if overrides.OTLPEndpoint != "" {
 		cfg.OTLPEndpoint = overrides.OTLPEndpoint
 	}
-	if overrides.OTLPInsecure {
-		cfg.OTLPInsecure = true
+	if overrides.otlpInsecureSet || overrides.OTLPInsecure {
+		cfg.OTLPInsecure = overrides.OTLPInsecure
 	}
 	if overrides.MetricsPrefix != "" {
 		cfg.MetricsPrefix = overrides.MetricsPrefix
@@ -108,6 +125,7 @@ func applyOverrides(cfg *obs.Config, overrides Config) {
 }
 
 func buildBundle(provider *obs.Provider, shutdown func(context.Context) error) core.Bundle {
+	providerConfig := provider.Config()
 	return core.Bundle{
 		ID: ID,
 		Libraries: []action.Library{
@@ -115,7 +133,7 @@ func buildBundle(provider *obs.Provider, shutdown func(context.Context) error) c
 		},
 		Hooks: []action.AnyHook{actionhook.New(provider)},
 		WrapPipeline: func(_ map[string]any, inner action.AnyAction) (action.AnyAction, error) {
-			return wrapRootSpan(inner), nil
+			return wrapRootSpan(inner, provider.Tracer("nexss/obs"), providerConfig.ServiceName, providerConfig.Env), nil
 		},
 		Shutdowns: []core.ShutdownFunc{shutdown},
 	}
@@ -125,14 +143,17 @@ func buildBundle(provider *obs.Provider, shutdown func(context.Context) error) c
 // span, so atoms from files without @pipeline share one TraceID. Nested
 // wrappers (sub-pipeline compiles) detect the existing span and pass
 // through, so a run produces exactly one root span.
-func wrapRootSpan(inner action.AnyAction) action.AnyAction {
-	tracer := otel.Tracer("nexss/obs")
+func wrapRootSpan(inner action.AnyAction, tracer trace.Tracer, serviceName, environment string) action.AnyAction {
 	return action.New("observability.root", func(ctx context.Context, req any) (any, error) {
 		if trace.SpanFromContext(ctx).SpanContext().IsValid() {
 			return action.InvokeAny(ctx, inner, req)
 		}
 		ctx, span := tracer.Start(ctx, "flow.run",
 			trace.WithSpanKind(trace.SpanKindInternal),
+			trace.WithAttributes(
+				attribute.String("nexss.service.name", serviceName),
+				attribute.String("nexss.env", environment),
+			),
 		)
 		defer span.End()
 		return action.InvokeAny(ctx, inner, req)
