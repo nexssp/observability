@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/nexssp/kernel/ai/dag"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -23,7 +22,7 @@ type Hook struct {
 func (p *Provider) Hook() *Hook {
 	return &Hook{
 		provider: p,
-		tracer:   otel.Tracer("nexss/obs"),
+		tracer:   p.tp.Tracer("nexss/obs"),
 	}
 }
 
