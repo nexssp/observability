@@ -1,5 +1,5 @@
 @description "Structured business event with tags and payload"
-@require github.com/nexssp/observability/nexssflow { trace_exporter: "stdout" }
+@require github.com/nexssp/observability { trace_exporter: "stdout" }
 
 @assert: result.emitted == true
 

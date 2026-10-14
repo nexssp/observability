@@ -15,7 +15,7 @@ import (
 	"testing"
 
 	"github.com/nexssp/flow/cli"
-	"github.com/nexssp/flow/core"
+	"github.com/nexssp/flow/compiler"
 	tracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"google.golang.org/protobuf/proto"
 
@@ -131,7 +131,7 @@ func TestFlowAdapter_RequireInstrumentsNamedPipelineAndEventAndHostShutsDownOnce
 		flowSource,
 		[]string{"--json"},
 		[]string{"github.com/nexssp/observability/nexssflow"},
-		func(adopt func(core.Bundle) error) error {
+		func(adopt func(compiler.Bundle) error) error {
 			return adopt(bundle)
 		},
 	)

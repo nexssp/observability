@@ -1,5 +1,5 @@
 @description "Named @pipeline emits a parent span wrapping all nested actions"
-@require github.com/nexssp/observability/nexssflow { trace_exporter: "stdout" }
+@require github.com/nexssp/observability { trace_exporter: "stdout" }
 
 @pipeline checkout
   { items: 3 }

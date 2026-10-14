@@ -5,7 +5,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/nexssp/flow/core"
+	"github.com/nexssp/flow/compiler"
 	"github.com/nexssp/kernel/action"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -17,22 +17,22 @@ import (
 const ID = "observability"
 
 func init() {
-	core.Register(ID, Bundle)
+	compiler.Register(ID, Bundle)
 }
 
 // Config overrides the environment-derived observability configuration.
 // Every field is optional; an empty value inherits from LoadConfigFromEnv
 // (SERVICE_NAME, ENV, SAMPLE_RATIO, OTLP_ENDPOINT, and OTLP_INSECURE).
 type Config struct {
-	ServiceName      string  `flow:"service_name"`
-	Env              string  `flow:"env"`
-	SampleRatio      float64 `flow:"sample_ratio"`
-	OTLPEndpoint     string  `flow:"otlp_endpoint"`
-	OTLPInsecure     bool    `flow:"otlp_insecure"`
-	MetricsPrefix    string  `flow:"metrics_prefix"`
-	MetricsNamespace string  `flow:"metrics_namespace"`
-	MetricsSubsystem string  `flow:"metrics_subsystem"`
-	TraceExporter    string  `flow:"trace_exporter"` // stdout | otlp | none
+	ServiceName      string  `nflow:"service_name"`
+	Env              string  `nflow:"env"`
+	SampleRatio      float64 `nflow:"sample_ratio"`
+	OTLPEndpoint     string  `nflow:"otlp_endpoint"`
+	OTLPInsecure     bool    `nflow:"otlp_insecure"`
+	MetricsPrefix    string  `nflow:"metrics_prefix"`
+	MetricsNamespace string  `nflow:"metrics_namespace"`
+	MetricsSubsystem string  `nflow:"metrics_subsystem"`
+	TraceExporter    string  `nflow:"trace_exporter"` // stdout | otlp | none
 
 	sampleRatioSet  bool
 	otlpInsecureSet bool
@@ -46,7 +46,7 @@ type Config struct {
 // A constructor error (invalid @require key, bad OTLP endpoint, nil
 // provider) is a programmer or configuration error; panic matches the
 // convention used by every transport adapter.
-func Bundle(opts map[string]string) core.Bundle {
+func Bundle(opts map[string]string) compiler.Bundle {
 	overrides, err := decodeOverrides(opts)
 	if err != nil {
 		panic("nexssflow: " + err.Error())
@@ -70,7 +70,7 @@ func Bundle(opts map[string]string) core.Bundle {
 }
 
 func decodeOverrides(opts map[string]string) (Config, error) {
-	overrides, err := core.Decode[Config](opts)
+	overrides, err := compiler.Decode[Config](opts)
 	if err != nil {
 		return Config{}, err
 	}
@@ -86,12 +86,12 @@ func decodeOverrides(opts map[string]string) (Config, error) {
 // NewBundle is the programmatic entry point for hosts that own the
 // provider lifecycle. It returns an error instead of panicking so a
 // caller can surface initialization failures before running any Flow.
-func NewBundle(provider *obs.Provider, shutdown func(context.Context) error) (core.Bundle, error) {
+func NewBundle(provider *obs.Provider, shutdown func(context.Context) error) (compiler.Bundle, error) {
 	if provider == nil {
-		return core.Bundle{}, errors.New("nexssflow: provider is nil")
+		return compiler.Bundle{}, errors.New("nexssflow: provider is nil")
 	}
 	if shutdown == nil {
-		return core.Bundle{}, errors.New("nexssflow: shutdown callback is nil")
+		return compiler.Bundle{}, errors.New("nexssflow: shutdown callback is nil")
 	}
 	return buildBundle(provider, shutdown), nil
 }
@@ -124,9 +124,9 @@ func applyOverrides(cfg *obs.Config, overrides Config) {
 	}
 }
 
-func buildBundle(provider *obs.Provider, shutdown func(context.Context) error) core.Bundle {
+func buildBundle(provider *obs.Provider, shutdown func(context.Context) error) compiler.Bundle {
 	providerConfig := provider.Config()
-	return core.Bundle{
+	return compiler.Bundle{
 		ID: ID,
 		Libraries: []action.Library{
 			{Name: eventLibrary, Actions: []action.AnyAction{newEventAction(provider)}},
@@ -135,7 +135,7 @@ func buildBundle(provider *obs.Provider, shutdown func(context.Context) error) c
 		WrapPipeline: func(_ map[string]any, inner action.AnyAction) (action.AnyAction, error) {
 			return wrapRootSpan(inner, provider.Tracer("nexss/obs"), providerConfig.ServiceName, providerConfig.Env), nil
 		},
-		Shutdowns: []core.ShutdownFunc{shutdown},
+		Shutdowns: []compiler.ShutdownFunc{shutdown},
 	}
 }
 

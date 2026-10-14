@@ -2,7 +2,7 @@
 
 `nexssflow` is an optional adapter package within the root `github.com/nexssp/observability` Go module; it does not have its own `go.mod`. It is built against Flow v0.20.1 and Kernel v0.27.4, matching the versions required by the root module.
 
-`NewBundle` installs `actionhook.New(provider)` through Flow's `core.Bundle.Hooks` path. Flow v0.20.1 materializes each named `@pipeline` as an action named `pipeline.<name>`, so the existing action hook emits a named parent span around the instrumented actions in that pipeline. The bundle also exposes `observability.emit_event`, a generic business-event action backed by the root module's existing `events.Emit` API; it does not add a public root API. The provider cleanup callback is transferred through `core.Bundle.Shutdowns` and run by Flow's invocation `Host`. The adapter does not start an HTTP listener or populate `runner.Config.Hooks`.
+`NewBundle` installs `actionhook.New(provider)` through Flow's `compiler.Bundle.Hooks` path. Flow v0.20.1 materializes each named `@pipeline` as an action named `pipeline.<name>`, so the existing action hook emits a named parent span around the instrumented actions in that pipeline. The bundle also exposes `observability.emit_event`, a generic business-event action backed by the root module's existing `events.Emit` API; it does not add a public root API. The provider cleanup callback is transferred through `compiler.Bundle.Shutdowns` and run by Flow's invocation `Host`. The adapter does not start an HTTP listener or populate `runner.Config.Hooks`.
 
 [`examples/observability.nflow`](examples/observability.nflow) is a runnable Flow example:
 
@@ -58,7 +58,7 @@ import (
 	"os"
 
 	flowcli "github.com/nexssp/flow/cli"
-	"github.com/nexssp/flow/core"
+	"github.com/nexssp/flow/compiler"
 	obs "github.com/nexssp/observability"
 	"github.com/nexssp/observability/nexssflow"
 )
@@ -82,7 +82,7 @@ func run(args []string) int {
 	return flowcli.RunWithBundleFactoriesForRequirements(
 		args,
 		[]string{"github.com/nexssp/observability/nexssflow"},
-		func(adopt func(core.Bundle) error) error {
+		func(adopt func(compiler.Bundle) error) error {
 			return adopt(bundle)
 		},
 	)

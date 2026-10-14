@@ -1,5 +1,5 @@
 @description "Failed actions record status Error and increment action_errors_total"
-@require github.com/nexssp/observability/nexssflow { trace_exporter: "stdout" }
+@require github.com/nexssp/observability { trace_exporter: "stdout" }
 
 @assert: result == "recovered"
 

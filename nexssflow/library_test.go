@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nexssp/flow/core"
+	"github.com/nexssp/flow/compiler"
 
 	"github.com/nexssp/observability/nexssflow"
 )
@@ -13,7 +13,7 @@ import (
 const eventLibrary = "observability"
 
 func TestBundle_Contract(t *testing.T) {
-	if _, ok := core.Lookup(nexssflow.ID); !ok {
+	if _, ok := compiler.Lookup(nexssflow.ID); !ok {
 		t.Fatalf("init() did not register bundle under %q", nexssflow.ID)
 	}
 

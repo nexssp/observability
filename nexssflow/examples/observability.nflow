@@ -1,5 +1,5 @@
 @description "Observable checkout: parallel checks, a named trace, and a business event"
-@require github.com/nexssp/observability/nexssflow {
+@require github.com/nexssp/observability {
   service_name: "checkout-demo",
   env: "local",
   trace_exporter: "stdout",
