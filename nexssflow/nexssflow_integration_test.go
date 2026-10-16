@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,6 +22,23 @@ import (
 	"github.com/nexssp/observability/nexssflow"
 )
 
+const pipelineWithChildrenFlow = `@description "Named @pipeline emits a parent span wrapping all nested actions"
+@require github.com/nexssp/observability { trace_exporter: "stdout" }
+
+@pipeline checkout
+  { items: 3 }
+  -> sleep @{ duration_ms: 5 }
+  -> observability.emit_event @{
+    type: "checkout.completed",
+    action: "pipeline.checkout",
+    entity_id: "ord_200"
+  }
+@end
+
+@assert: result.emitted == true
+{} -> pipeline.checkout
+`
+
 type exportedSpan struct {
 	name         string
 	traceID      []byte
@@ -35,15 +51,10 @@ type exportedSpan struct {
 }
 
 func TestFlowAdapter_RequireInstrumentsNamedPipelineAndEventAndHostShutsDownOnce(t *testing.T) {
-	source, sourceErr := os.ReadFile("examples/03_pipeline_with_children.nflow")
-	if sourceErr != nil {
-		t.Fatalf("read Flow example: %v", sourceErr)
-	}
-
 	// Materialize another named pipeline as a guard against accidentally
 	// exporting an unnamed or duplicated pipeline span.
 	flowSource := strings.Replace(
-		string(source),
+		pipelineWithChildrenFlow,
 		"@pipeline checkout\n",
 		"@pipeline unused\n  runtime.sleep @{ duration_ms: 1 }\n@end\n\n@pipeline checkout\n",
 		1,
