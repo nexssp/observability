@@ -1,311 +1,264 @@
-# Nexss Observability 🔭 + 🌀 NEXSS FLOW
+# Nexss Observability
 
+<small>Nexss Flow 🌀 ready</small>
+
+<!-- project-status -->
+
+[![CI](https://github.com/nexssp/observability/actions/workflows/ci.yml/badge.svg)](https://github.com/nexssp/observability/actions/workflows/ci.yml)
+[![Latest tag](https://img.shields.io/github/v/tag/nexssp/observability?sort=semver&label=latest%20tag)](https://github.com/nexssp/observability/tags)
 [![Go Reference](https://pkg.go.dev/badge/github.com/nexssp/observability.svg)](https://pkg.go.dev/github.com/nexssp/observability)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-**Zero-Touch Telemetry and Pragmatic Observability for High-Performance Go Applications.**
+<!-- /project-status -->
 
-`nexssp/observability` keeps infrastructure concerns out of your domain code.
-Go's native `context.Context` and `nexssp/kernel`'s `AnyHook` execution hooks
-carry tracing, metrics, and structured logging across every action without a
-single infrastructure import in your handlers.
+Nexss Observability provides OpenTelemetry tracing, Prometheus metrics, contextual `log/slog` logging, and readiness checks for Nexss Kernel actions and Go services. Instrumentation can be attached at action and transport boundaries, so application code can use ordinary `context.Context` without hand-writing telemetry bookkeeping around every operation.
 
-## 🏗️ Architecture Philosophy
+Requires **Go 1.26.9 or newer**.
 
-**Observability is an infrastructure concern, not a domain concern.**
+## Capabilities
 
-Business logic (`kernel/action` handlers) never sees a tracer, a metric
-counter, or a correlation ID extractor. The `AnyHook` interface intercepts
-every action at the boundary.
+- **Action instrumentation:** `actionhook.New(provider)` adapts the provider to Kernel's `action.AnyHook`. Instrumented actions get spans, latency and error metrics, trace context, and retry/cache/concurrency events. Human-intervention suspensions are recorded separately from failures.
 
-### What you get
+- **OpenTelemetry tracing:** configure OTLP/HTTP trace export, or supply a custom span processor. No network trace exporter is attached by the Go provider unless an OTLP endpoint is configured.
 
-- **Prometheus metrics** — `action_latency_ms`, `action_errors_total`,
-  `action_suspended_total`, plus LLM cost/token counters.
-- **OpenTelemetry traces** — one span per action, plus a `flow.run` root span
-  when driven through the Flow adapter.
-- **Contextual logging** — `log/slog` records carry `trace_id`, `span_id`,
-  and the current action name.
-- **Transparent propagation** — wrapped DB drivers and HTTP clients attach
-  themselves to the active trace through `context.Context`.
-- **Health aggregation** — a registry of readiness checks behind a bounded
-  HTTP handler.
+- **Prometheus metrics:** expose the provider's registry through `MetricsHandler()`. Action metrics are `action_latency_ms`, `action_errors_total`, and `action_suspended_total`; names can be prefixed or namespaced. Optional LLM metrics cover token counts, cost, and duration.
 
----
+- **Contextual logging:** `Provider.Logger()` returns a `slog.Logger` that adds `trace_id`, `span_id`, `trace_flags`, and the active action name when a valid span is present.
 
-## 🤯 The Magic of Nexss: "Zero-Touch" Telemetry
+- **Propagation helpers:** `httptrace` wraps HTTP clients/transports, and `dbtrace` wraps `database/sql` operations. `TraceID` and `SpanID` read IDs from the active OpenTelemetry span or Kernel context.
 
-In traditional microservices, observability infects the business logic.
-Developers mix OpenTelemetry APIs, Prometheus counters, and context
-extraction directly into their domain code.
+- **Manual spans and local collection:** `StartSpan` creates application-level spans. `WithCollector` keeps a bounded in-memory ring of spans created with `StartSpan` for simple local timelines.
 
-### ❌ The "Old Way" (Spaghetti Code)
+- **Readiness and business events:** register readiness checks for `HealthHandler( )`, and emit structured business events with the `events` package. The Flow adapter also exposes `observability.emit_event`.
 
-Over 70% of this handler is infrastructure boilerplate.
+- **Stream and LLM hooks:** attach stream statistics to an active span, or opt into LLM token/cost metrics, logs, and span attributes with the `llm` hook.
 
-```go
-func CreateOrder(ctx context.Context, req OrderReq) (OrderRes, error) {
-    ctx, span := tracer.Start(ctx, "CreateOrder")
-    defer span.End()
+These are Go APIs unless specifically called out under [Nexss Flow integration](#nexss-flow-integration). The provider returns HTTP handlers; it does not start a server or bind a port.
 
-    start := time.Now()
-    defer func() {
-        requestLatency.WithLabelValues("CreateOrder").Observe(time.Since(start).Seconds())
-    }()
+## Go integration
 
-    log.With("trace_id", span.SpanContext().TraceID().String()).Info("creating order")
+Install the module:
 
-    err := db.ExecContext(ctx, "INSERT INTO orders...", req.ID)
-    if err != nil {
-        errorCounter.WithLabelValues("CreateOrder").Inc()
-        span.RecordError(err)
-        return OrderRes{}, err
-    }
-    return OrderRes{Status: "created"}, nil
-}
+```
+go get github.com/nexssp/observability@latest
 ```
 
-### ✨ The "Nexss Way" (Pristine Domain Logic)
-
-```go
-var CreateOrder = action.New("order.create", func(ctx context.Context, req OrderReq) (OrderRes, error) {
-
-    logger.InfoContext(ctx, "creating order")
-
-    err := db.ExecContext(ctx, "INSERT INTO orders...", req.ID)
-    if err != nil {
-        return OrderRes{}, err
-    }
-
-    return OrderRes{Status: "created"}, nil
-}).Build()
-```
-
-### 🪄 How is this possible?
-
-The tracing and metrics live in a hook, attached once at the boundary:
-
-```go
-telemetryPlugin := actionhook.New(obsProvider)
-CreateOrder.AddAnyHook(telemetryPlugin)
-```
-
-When `CreateOrder` runs:
-
-1. **Interceptor fires** — the hook opens an OTel span and stamps the context.
-2. **Context propagates** — the wrapped `dbtrace.DB` and `httptrace.Client`
-   find the trace through `context.Context` and attach their spans.
-3. **Cleanup runs** — the hook records the error, increments counters, and
-   ends the span.
-
-The hook adds no heap allocations beyond what the OTel SDK's own span
-lifecycle already does. Trace ID and span ID extraction
-(`obs.TraceID`, `obs.SpanID`) are zero-allocation.
-
----
-
-## 📦 Getting Started
-
-### 1. Installation
-
-```bash
-go get github.com/nexssp/observability
-```
-
-### 2. Auto-configuration
-
-```bash
-export SERVICE_NAME="order-processor"
-export ENV="production"
-export OTLP_ENDPOINT="http://openobserve:5080/v1/traces"
-export OTLP_HEADERS="Authorization=Bearer abc123xyz"
-```
+Initialize the provider, attach its action hook, and shut it down with a bounded context:
 
 ```go
 package main
 
 import (
-	"context"
-	"log"
+    "context"
+    "errors"
+    "log"
+    "time"
 
-	obs "github.com/nexssp/observability"
+    "github.com/nexssp/kernel/action"
+    obs "github.com/nexssp/observability"
+    "github.com/nexssp/observability/actionhook"
 )
+
+func run() (err error) {
+    ctx := context.Background()
+    provider, shutdown, err := obs.Auto()
+    if err != nil {
+        return err
+    }
+    shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+    defer cancel()
+    defer func() { err = errors.Join(err, shutdown(shutdownCtx)) }()
+
+    greet := action.New("demo.greet", func(_ context.Context, name string) (string, error) {
+        return "hello " + name, nil
+    }).AnyHook(actionhook.New(provider)).Build()
+
+    result, err := greet.Do(ctx, "world")
+    if err != nil {
+        return err
+    }
+    provider.Logger().InfoContext(ctx, "greeting completed", "result", result)
+    return nil
+}
 
 func main() {
-	ctx := context.Background()
-
-	provider, shutdown, err := obs.Auto()
-	if err != nil {
-		log.Fatalf("failed to initialize telemetry: %v", err)
-	}
-	defer func() { _ = shutdown(ctx) }()
-
-	provider.Logger().InfoContext(ctx, "telemetry successfully initialized")
+    if err := run(); err != nil {
+        log.Fatal(err)
+    }
 }
 ```
 
-### 3. Advanced Configuration
+`actionhook.New(provider)` installs instrumentation on eligible actions as they are built; Kernel system-scope actions are excluded. The hook creates an `action.<name>` span, records latency/errors/suspensions, and places the active trace IDs into the action context. Attach the hook when building the action, or use the Flow bundle described below.
 
-Use `AutoWithOptions` for custom registries, naming conventions, histogram
-boundaries, or a custom `slog.Handler`:
+### Configuration
+
+`obs.Auto()` reads these environment variables. Empty values use the defaults shown; invalid health timeouts fall back to the default.
+
+| Variable | Purpose | Default / behavior |
+| --- | --- | --- |
+| `SERVICE_NAME` | Service resource name | `nexss` |
+| `NODE_ID` | Service-instance identifier | Generated from service name, hostname, and a random suffix when unset |
+| `ENV` | Deployment environment | `local` |
+| `OTLP_ENDPOINT` | OTLP/HTTP trace endpoint | Unset; no network trace exporter is attached |
+| `OTLP_HEADERS` | Comma-separated `key=value` exporter headers | Empty |
+| `OTLP_INSECURE` | Allow insecure OTLP transport | `false`; localhost endpoints are treated as insecure |
+| `SAMPLE_RATIO` | Trace sampling ratio in `[0,1]` | `1` (record all sampled traces); explicit `0` disables sampling |
+| `HEALTH_CHECK_TIMEOUT` | Per-check readiness timeout, as a Go duration | `3s` |
+
+For code-level settings, use `AutoWithOptions` or `NewWithShutdown` with `Config`:
 
 ```go
-provider, shutdown, _ := obs.AutoWithOptions(
-	// Prometheus naming: namespace_subsystem_metric
-	obs.WithMetricsNamespace("nexssp"),
-	obs.WithMetricsSubsystem("kernel"),
-	// Or a flat prefix, e.g. for Datadog or OpenObserve:
-	// obs.WithMetricsPrefix("custom_flat_prefix"),
-
-	obs.WithHistogramBuckets([]float64{
-		0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0,
-	}),
-
-	obs.WithPrometheusRegistry(prometheus.NewRegistry()),
-	obs.WithLoggerHandler(slog.NewJSONHandler(os.Stdout, nil)),
+provider, shutdown, err := obs.AutoWithOptions(
+    obs.WithPrometheusRegistry(prometheus.NewRegistry()),
+    obs.WithMetricsNamespace("nexss"),
+    obs.WithMetricsSubsystem("checkout"),
+    obs.WithHistogramBuckets([]float64{1, 5, 10, 50, 100, 500}),
+    obs.WithLoggerHandler(slog.NewJSONHandler(os.Stdout, nil)),
 )
-defer func() { _ = shutdown(context.Background()) }()
 ```
 
-### 4. Zero-Dependency Trace ID Extraction
+Handle `err` and call the returned `shutdown` function when the application exits. Available options also include `WithMetricsPrefix`; when set, the prefix takes precedence over the namespace/subsystem pair for the action metrics. These settings customize the registry, metric names and histogram boundaries, and base `slog.Handler`.
 
-Business logic can read the active trace and span IDs as strings without
-importing the OTel SDK:
+### Metrics and readiness handlers
+
+Mount the returned handlers on an HTTP server owned and managed by your application. Register checks with a context-aware function; each check receives a context bounded by `HEALTH_CHECK_TIMEOUT` (or the configured timeout).
 
 ```go
-import obs "github.com/nexssp/observability"
+provider.RegisterCheck("database", func(ctx context.Context) error {
+    return db.PingContext(ctx)
+})
 
-func Process(ctx context.Context) {
-	traceID := obs.TraceID(ctx) // "4bf92f3577b34da6a3ce929d0e0e4736"
-	spanID := obs.SpanID(ctx)   // "00f067aa0ba902b7"
-	_ = traceID
-	_ = spanID
-}
+mux := http.NewServeMux( )
+mux.Handle("GET /metrics", provider.MetricsHandler())
+mux.Handle("GET /healthz", provider.HealthHandler())
+// Serve mux with the application's own http.Server and lifecycle.
 ```
 
----
+The metrics handler serves the provider's Prometheus registry. The health handler returns JSON: HTTP 200 when all registered checks pass, or HTTP 503 when a check returns an error (including a deadline error from a check that honors its timeout context ). With no checks registered, it reports healthy. The library deliberately does not create a listener.
 
-## 🌀 Flow Integration
+### Context propagation and log correlation
 
-The `nexssflow` adapter turns every `.nflow` atom into a span without
-touching the flow source. It lives inside this module — no separate `go get`.
-
-```nflow
-@require github.com/nexssp/observability/nexssflow
-
-@assert: result.value == "hello"
-{ value: "hello" } -> noop -> noop
-```
-
-The adapter delivers its hook through `core.Bundle.Hooks`, which
-`runner.BuildConfig` aggregates into `runner.Config.Hooks` and
-`executionResolver` clones into every resolved action — regardless of which
-bundle mounted it. A `WrapPipeline` wrapper opens a single `flow.run` root
-span, so every atom from `pipeline.<name>` to `runtime.*` shares one TraceID.
-
-### Local development without a collector
-
-```nflow
-@require github.com/nexssp/observability/nexssflow { trace_exporter: "stdout" }
-
-{ value: "hello" } -> noop -> noop
-```
-
-One line per span on stderr, live:
-
-```
-15:19:56.417 [ok ] action.runtime.noop   0ns     trace=51ec7318  span=b5808e92  parent=b3198488
-15:19:56.427 [ok ] flow.run              9.74ms  trace=51ec7318  span=b3198488  parent=--------
-```
-
-`trace_exporter` accepts `otlp` (default), `stdout`, or `none`. Every
-environment variable in `LoadConfigFromEnv` can be overridden per flow:
-
-```nflow
-@require github.com/nexssp/observability/nexssflow {
-  otlp_endpoint: "http://collector:4318",
-  service_name: "checkout",
-  sample_ratio: 0.1
-}
-```
-
-See [`nexssflow/README.md`](nexssflow/README.md) for the full configuration
-table and runnable examples.
-
----
-
-## ⚡ SRE Edge Cases Covered
-
-### 1. Panic Isolation inside Sub-Spans
-
-Deferred named-error processing captures panics inside manual spans so the
-span is always ended, even when the closure is bypassed:
+Use the wrappers where you want client/database spans under the current action span. They preserve the supplied context so existing trace context propagates through the call.
 
 ```go
-func ParseComplexJSON(ctx context.Context, data []byte) (res string, err error) {
-	ctx, endSpan := obs.StartSpan(ctx, "json.parse")
-	defer func() {
-		if r := recover(); r != nil {
-			err = xerr.PanicRecovery(r)
-		}
-		endSpan(err)
-	}()
-	// ... code that might panic ...
-	return res, nil
-}
+tracedClient := httptrace.WrapClient(&http.Client{Timeout: 3 * time.Second} )
+tracedDB := dbtrace.Wrap(sqlDB)
+
+traceID := obs.TraceID(ctx) // empty when there is no trace ID
+spanID := obs.SpanID(ctx)   // empty when there is no span ID
+provider.Logger().InfoContext(ctx, "calling dependency", "trace_id", traceID)
 ```
 
-### 2. Dynamic Span Enrichment
+`httptrace.WrapClient` returns a cloned client with an OpenTelemetry transport; `httptrace.WrapTransport` can wrap a transport directly. `dbtrace.Wrap` instruments supported `database/sql` query, execution, statement, and transaction calls. The wrappers do not replace normal resource ownership: the application still owns its clients and underlying database.
 
-The context carries a standard OTel span; add attributes anywhere without
-vendor lock-in:
+`Provider.Logger( )` is a contextual `slog` logger. When the context contains a valid OpenTelemetry span, it adds trace IDs and trace flags; it also adds the action name when the action hook has placed it in the context. `TraceID` and `SpanID` are available without importing OpenTelemetry packages.
+
+### Manual spans and in-memory timelines
+
+Use `StartSpan` for work inside an action that is not covered by a wrapper. Pass an error to the returned end function so it records the error and status before closing the span.
 
 ```go
-if span := trace.SpanFromContext(ctx); span.IsRecording() {
-	span.SetAttributes(
-		attribute.String("user.tier", "VIP"),
-		attribute.Float64("payment.amount", 250.00),
-	)
+spanCtx, endSpan := obs.StartSpan(ctx, "cache.load")
+value, err := loadFromCache(spanCtx)
+endSpan(err)
+if err != nil {
+    return err
 }
+_ = value
 ```
 
-### 3. Non-Blocking Async Trace Detachment
-
-Background goroutines must not inherit the request's cancellation. Clone the
-trace context first:
-
-```go
-asyncCtx := xctx.CloneForAsync(ctx)
-
-go func() {
-	ctx, endSpan := obs.StartSpan(asyncCtx, "async.background_cleanup")
-	defer endSpan()
-	processCleanup(ctx)
-}()
-```
-
-### 4. Visual Timeline & Waterfall Extraction
-
-For TUI dashboards or agent control panels, use the in-memory trace
-collector to render a Gantt-style waterfall of every sub-span in one request:
+`WithCollector` attaches a bounded collector to a context. It captures completed spans created with `StartSpan` (up to `DefaultCollectorCapacity`, currently 64); it is an in-memory aid, not an exporter or a capture of every span created by other instrumentation.
 
 ```go
 ctx, collector := obs.WithCollector(ctx)
-_ = executeFidelitySteps(ctx)
+spanCtx, endSpan := obs.StartSpan(ctx, "batch.persist")
+err := persist(spanCtx)
+endSpan(err)
 
-if record, ok := obs.TraceRecordFromContext(ctx, "task.run", "http", nil); ok {
-	renderTimelineWaterfall(record)
+for _, span := range collector.Spans() {
+    log.Printf("%s %s %s", span.Status, span.Name, span.Duration)
 }
 ```
 
-### 5. High-Throughput Stream Telemetry
+For a `TraceRecord` summary, call `TraceRecordFromContext(ctx, actionName, transportName, err)`. `FormatDuration` formats durations for readable output. If you add dynamic attributes directly, use the standard OpenTelemetry span from `trace.SpanFromContext(ctx)` and check `span.IsRecording()` first.
 
-`iter.Seq2` streams report aggregate duration, item counts, dropped items,
-in-flight span events, and structured `obs.StreamStats` with zero per-item
-allocation overhead. See
-[`examples/05_stream_telemetry`](examples/05_stream_telemetry).
+### Business events
 
----
+`events.Emit` records a span named `event.<type>` and writes one structured `business_event` log record. Events are application telemetry, not Prometheus labels; keep high-cardinality values such as entity IDs in event fields rather than metric labels.
+
+```go
+events.Emit(ctx, provider.Logger(), events.BusinessEvent{
+    Type:     "order.created",
+    Action:   "checkout.complete",
+    EntityID: "ord-42",
+    Tags:     map[string]string{"channel": "web"},
+    Payload:  map[string]any{"total": 129.99},
+})
+```
+
+### LLM and stream telemetry
+
+For LLM responses, implement `llm.TokenCostProvider` (`Model`, `PromptTokens`, and `CompletionTokens`). If the response also implements `CachedTokenCostProvider`, cached prompt tokens are reported separately. `llm.NewLLMHook` can add token and duration metrics, optional cost estimates, structured logs, and usage attributes to an active span. Attach `hook.AsAnyHook()` to the LLM action and pass `provider.LLMMetrics()` in its options. The metrics include prompt, cached-prompt, and completion token totals, estimated cost in USD, and call duration; cost metrics are emitted only when a cost calculator is supplied and returns a value.
+
+For stream-producing code, populate `obs.StreamStats` with the measurements your consumer tracks and call `provider.RecordStream(ctx, stats)` to add stream attributes to the current span. The API carries stream identity, execution status/duration, emitted and delivered item counts, optional byte totals, and error details; it does not infer those counts or automatically wrap a stream iterator.
+
+## Nexss Flow integration
+
+The `nexssflow` adapter is part of this Go module; there is no separate module to install. Its registered bundle adds the action hook, wraps the Flow invocation in a `flow.run` root span, and provides `observability.emit_event` for structured business events. For example, a Flow file can configure the adapter and emit an event like this:
+
+```
+@require github.com/nexssp/observability {
+  service_name: "checkout-demo",
+  trace_exporter: "stdout",
+  sample_ratio: 1.0
+}
+@assert: result.emitted == true
+{} -> observability.emit_event @{
+  type: "order.created",
+  action: "checkout.complete",
+  entity_id: "ord-42",
+  tags: { channel: "web" },
+  payload: { outcome: "accepted" }
+}
+```
+
+`trace_exporter` accepts `otlp` (the default), `stdout`, or `none`. `stdout` writes spans to stderr for local inspection. The adapter accepts these per-`@require` settings:
+
+| `@require` key | Environment fallback | Default when unset |
+| --- | --- | --- |
+| `service_name` | `SERVICE_NAME` | `nexss` |
+| `env` | `ENV` | `local` |
+| `sample_ratio` | `SAMPLE_RATIO` | `1.0`; explicit `0` disables sampling |
+| `otlp_endpoint` | `OTLP_ENDPOINT` | Unset; no network trace exporter is attached |
+| `otlp_insecure` | `OTLP_INSECURE` | `false`, except localhost endpoints are treated as insecure |
+| `metrics_prefix` | None | Unset |
+| `metrics_namespace` | None | Unset |
+| `metrics_subsystem` | None | Unset |
+| `trace_exporter` | None | `otlp`; also accepts `stdout` and `none` |
+
+`metrics_prefix`, when set, takes precedence over `metrics_namespace` and `metrics_subsystem`; these metric-naming settings have no environment-variable fallback. An explicit `otlp_insecure: false` overrides an environment-derived `true`. The Flow invocation owns the bundle shutdown callback.
+
+> **WIP — Flow parity:** Flow currently gets action instrumentation, the `flow.run` root span, exporter/configuration overrides, and the business-event action. It does **not** expose the complete Go API as Flow actions: manual spans and in-memory collection, HTTP/database wrappers, optional LLM and stream helpers, and Prometheus/readiness HTTP handlers remain Go-host or application concerns. The bundle does not start an HTTP listener. A Flow host that needs metrics or health endpoints must mount the provider handlers itself.
+
+Runnable ecosystem examples are maintained in the [centralized Nexss examples repository](https://github.com/nexssp/examples).
+
+## Development and tests
+
+Install [Task](https://taskfile.dev), then run the repository's test or CI commands:
+
+```
+task test       # go test -short ./...
+task test:race  # go test -race -short ./...
+task ci         # lint plus uncached race tests
+```
+
+The Taskfile also provides `task test:nocache`, `task test:race:nocache`, `task test:cover`, and `task lint:nflow` (lint the bundled Flow examples/specs). To check that all Go examples build, run `task examples`.
+
+## Related projects
+
+- [Nexss Kernel](https://github.com/nexssp/kernel) — typed action contracts and runtime.
+
+- [Nexss Flow](https://github.com/nexssp/flow) — Flow language and runtime.
 
 ## License
 
