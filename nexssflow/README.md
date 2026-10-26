@@ -1,8 +1,8 @@
 # Observability adapter for Nexss Flow
 
-`nexssflow` is an optional adapter package within the root `github.com/nexssp/observability` Go module; it does not have its own `go.mod`. It is built against Flow v0.20.1 and Kernel v0.27.4, matching the versions required by the root module.
+`nexssflow` is an optional adapter package within the root `github.com/nexssp/observability` Go module; it does not have its own `go.mod`. It is built against Flow v0.45.0 and Kernel v0.35.0, matching the versions required by the root module.
 
-`NewBundle` installs `actionhook.New(provider)` through Flow's `compiler.Bundle.Hooks` path. Flow v0.20.1 materializes each named `@pipeline` as an action named `pipeline.<name>`, so the existing action hook emits a named parent span around the instrumented actions in that pipeline. The bundle also exposes `observability.emit_event`, a generic business-event action backed by the root module's existing `events.Emit` API; it does not add a public root API. The provider cleanup callback is transferred through `compiler.Bundle.Shutdowns` and run by Flow's invocation `Host`. The adapter does not start an HTTP listener or populate `runner.Config.Hooks`.
+`NewBundle` installs `actionhook.New(provider)` through Flow's `compiler.Bundle.Hooks` path. Flow materializes each named `@pipeline` as an action named `pipeline.<name>`, so the existing action hook emits a named parent span around the instrumented actions in that pipeline. The bundle also exposes `observability.emit_event`, a generic business-event action backed by the root module's existing `events.Emit` API; it does not add a public root API. The provider cleanup callback is transferred through `compiler.Bundle.Shutdowns` and run by Flow's invocation `Host`. The adapter does not start an HTTP listener or populate `runner.Config.Hooks`.
 
 [`examples/observability.nflow`](examples/observability.nflow) is a runnable Flow example:
 
