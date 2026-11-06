@@ -52,10 +52,10 @@ github.com/ncruces/go-sqlite3-wasm/v6 v6.3.35401 h1:oaZQ/7pA15HbXFZygnqJ8P/2fy10
 github.com/ncruces/go-sqlite3-wasm/v6 v6.3.35401/go.mod h1:KG11ycVocsrsZ6OoNm4j2T7SKyzb/6ELHo0M+bAX50A=
 github.com/ncruces/julianday v1.0.0 h1:fH0OKwa7NWvniGQtxdJRxAgkBMolni2BjDHaWTxqt7M=
 github.com/ncruces/julianday v1.0.0/go.mod h1:Dusn2KvZrrovOMJuOt0TNXL6tB7U2E8kvza5fFc9G7g=
-github.com/nexssp/flow v0.50.0 h1:scm6QiOptpnmkfaXX9oidm5jrmgrTtpG8TGrAq4YKrA=
-github.com/nexssp/flow v0.50.0/go.mod h1:dbL8Ie2eNVhbwjvnc8k4Vr52v0N0hgehDpWaVEe1AzM=
-github.com/nexssp/kernel v0.36.0 h1:a+oC0/h1RXUMeluils2iOgq3drVQRpQlzBBF9iUBiGk=
-github.com/nexssp/kernel v0.36.0/go.mod h1:7XZS0seoOhsKAg/CuYtV1pSvXIhV+rTWKQnd74AY8HY=
+github.com/nexssp/flow v0.70.0 h1:5h3AYSiPbegdpooxATBVlj6bkWX4iPalzOKr957in+4=
+github.com/nexssp/flow v0.70.0/go.mod h1:ePHaKO4FiG3fTgev3Xy4D8UnHp5aG1cWXcP4IF4lLZA=
+github.com/nexssp/kernel v0.37.0 h1:HTc/ArMNYPilMAxCbVXQStdmdboPVylwkojzzDvc7Ms=
+github.com/nexssp/kernel v0.37.0/go.mod h1:7XZS0seoOhsKAg/CuYtV1pSvXIhV+rTWKQnd74AY8HY=
 github.com/nexssp/validation v0.3.0 h1:j9iLKqXqDIQfUijEGEEnhZYESj8GILIYqznSDKa0fxE=
 github.com/nexssp/validation v0.3.0/go.mod h1:S7Z7soTGH2S6/Z61cFVZMvonr3yYyTG2vY/cci8fEUE=
 github.com/prometheus/client_golang v1.25.0 h1:cDtW1TcFsMi1RJc8khwCKB4VhzwV04aKqbYtNOXuiK0=
