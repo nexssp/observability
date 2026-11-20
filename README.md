@@ -213,13 +213,13 @@ The `nexssflow` adapter is part of this Go module; there is no separate module t
   sample_ratio: 1.0
 }
 @assert: result.emitted == true
-{} -> observability.emit_event @{
+{} -> observability.emit_event(
   type: "order.created",
   action: "checkout.complete",
   entity_id: "ord-42",
   tags: { channel: "web" },
   payload: { outcome: "accepted" }
-}
+)
 ```
 
 `trace_exporter` accepts `otlp` (the default), `stdout`, or `none`. `stdout` writes spans to stderr for local inspection. The adapter accepts these per-`@require` settings:

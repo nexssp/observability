@@ -27,12 +27,12 @@ const pipelineWithChildrenFlow = `@description "Named @pipeline emits a parent s
 
 @pipeline checkout
   { items: 3 }
-  -> sleep @{ duration_ms: 5 }
-  -> observability.emit_event @{
+  -> sleep(duration_ms: 5)
+  -> observability.emit_event(
     type: "checkout.completed",
     action: "pipeline.checkout",
     entity_id: "ord_200"
-  }
+  )
 @end
 
 @assert: result.emitted == true
@@ -56,7 +56,7 @@ func TestFlowAdapter_RequireInstrumentsNamedPipelineAndEventAndHostShutsDownOnce
 	flowSource := strings.Replace(
 		pipelineWithChildrenFlow,
 		"@pipeline checkout\n",
-		"@pipeline unused\n  runtime.sleep @{ duration_ms: 1 }\n@end\n\n@pipeline checkout\n",
+		"@pipeline unused\n  runtime.sleep(duration_ms: 1)\n@end\n\n@pipeline checkout\n",
 		1,
 	)
 
