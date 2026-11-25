@@ -350,7 +350,11 @@ func (p *Provider) handleHealth(w http.ResponseWriter, r *http.Request) {
 		cancel()
 
 		if err != nil {
-			results[name] = err.Error()
+			if p.cfg.RedactHealthCheckErrors {
+				results[name] = "failed"
+			} else {
+				results[name] = err.Error()
+			}
 			status = http.StatusServiceUnavailable
 		} else {
 			results[name] = "ok"

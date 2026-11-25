@@ -27,6 +27,8 @@ type Config struct {
 	SampleRatio        float64
 	SampleRatioSet     bool
 	HealthCheckTimeout time.Duration
+	// RedactHealthCheckErrors replaces failed check details with "failed" in health responses.
+	RedactHealthCheckErrors bool
 
 	PrometheusRegistry *prometheus.Registry
 	MetricsPrefix      string
@@ -154,4 +156,9 @@ func WithHistogramBuckets(buckets []float64) Option {
 
 func WithLoggerHandler(handler slog.Handler) Option {
 	return func(c *Config) { c.LoggerHandler = handler }
+}
+
+// WithRedactHealthCheckErrors controls whether health responses omit underlying check errors.
+func WithRedactHealthCheckErrors(redact bool) Option {
+	return func(c *Config) { c.RedactHealthCheckErrors = redact }
 }

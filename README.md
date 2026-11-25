@@ -134,7 +134,7 @@ mux.Handle("GET /healthz", provider.HealthHandler())
 // Serve mux with the application's own http.Server and lifecycle.
 ```
 
-The metrics handler serves the provider's Prometheus registry. The health handler returns JSON: HTTP 200 when all registered checks pass, or HTTP 503 when a check returns an error (including a deadline error from a check that honors its timeout context ). With no checks registered, it reports healthy. The library deliberately does not create a listener.
+The metrics handler serves the provider's Prometheus registry. The health handler returns JSON: HTTP 200 when all registered checks pass, or HTTP 503 when a check returns an error (including a deadline error from a check that honors its timeout context ). With no checks registered, it reports healthy. The library deliberately does not create a listener. By default, failed check entries include the underlying error text; set `Config.RedactHealthCheckErrors` to `true`, or pass `obs.WithRedactHealthCheckErrors(true)` to `AutoWithOptions`, to replace that text with `"failed"` while keeping the same check names and HTTP status.
 
 ### Context propagation and log correlation
 
